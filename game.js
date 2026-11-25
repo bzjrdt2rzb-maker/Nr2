@@ -52,6 +52,9 @@
   const rbIndex = (x, y, t) => ((((x + y) * 3 + Math.floor(t * 24)) % HUES) + HUES) % HUES;
   const cellHash = (x, y) => (Math.imul(x, 73856093) ^ Math.imul(y, 19349663)) >>> 0;
   const isRb = p => FE.isRainbowName(p.name);
+  const SP_CODE = { einhorn: 1, kaktus: 2, mcqueen: 3 };
+  const blasts = [];                // Kaktus-Stachelringe (Effekt)
+  let blastReadyAt = 0;             // wann der eigene Kaktus wieder zustechen kann (performance.now)
 
   // ---------- Hilfsfunktionen ----------
   const rand = (a, b) => a + Math.random() * (b - a);
@@ -124,6 +127,7 @@
       if (ev.r === 'self') msg = `${ev.vn} ist über die eigene Spur gestolpert`;
       else if (ev.r === 'head') msg = `${ev.kn} hat ${ev.vn} gerammt`;
       else if (ev.r === 'wiped') msg = `${ev.kn} hat ${ev.vn} komplett eingenommen`;
+      else if (ev.r === 'cactus') msg = `${ev.kn} hat ${ev.vn} aufgespießt`;
       else if (ev.r === 'leave') msg = `${ev.vn} hat das Spiel verlassen`;
       else msg = `${ev.kn} hat ${ev.vn} abgeschnitten`;
       if (ev.r !== 'leave' || session.kind !== 'solo') addFeed(msg, mine);
@@ -141,6 +145,16 @@
       if (session.kind !== 'solo' || mine) {
         addFeed(ev.on ? `${mine ? 'Du bist' : ev.n + ' ist'} jetzt unsterblich` : `${mine ? 'Du bist' : ev.n + ' ist'} wieder verwundbar`, mine);
       }
+    } else if (ev.k === 'boost') {
+      const mine = myId && ev.id === myId;
+      if (session.kind !== 'solo' || mine) addFeed(ev.on ? `${mine ? 'Du gibst' : ev.n + ' gibt'} Vollgas!` : `${mine ? 'Du fährst' : ev.n + ' fährt'} wieder normal`, mine);
+    } else if (ev.k === 'blast') {
+      blasts.push({ x: ev.x, y: ev.y, r: ev.r, life: 0.6 });
+      for (let k = 0; k < 30; k++) {
+        const a = rand(0, Math.PI * 2), v = rand(6, 14);
+        particles.push({ x: ev.x, y: ev.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: rand(0.3, 0.6), color: k % 3 ? '#16a34a' : '#bbf7d0', size: rand(0.15, 0.3) });
+      }
+      if (myId && ev.id === myId) blastReadyAt = performance.now() + ev.cd * 1000;
     } else if (ev.k === 'join') {
       if (!creatingSelf && ev.id !== myId && session.kind !== 'solo') addFeed(`${ev.n} ist beigetreten`, true);
     }
@@ -181,12 +195,13 @@
 
   function applyPlayers(arr) {
     const now = performance.now();
-    for (const [id, x, y, a, alive, count, kills, st, inv] of arr) {
+    for (const [id, x, y, a, alive, count, kills, st, inv, bst] of arr) {
       const p = remotePlayer(id);
       p.sx = x / 100; p.sy = y / 100; p.sa = a / 1000;
+      p.boost = !!bst;
       const was = p.alive;
       p.alive = !!alive;
-      if ((!was && p.alive) || Math.hypot(p.x - p.sx, p.y - p.sy) > 4 + SPEED * remote.speedMul * 0.15) {
+      if ((!was && p.alive) || Math.hypot(p.x - p.sx, p.y - p.sy) > 4 + SPEED * remote.speedMul * (p.boost ? FE.BOOST : 1) * 0.15) {
         p.x = p.sx; p.y = p.sy; p.angle = p.sa;
         if (id === myId) { predAngle = p.sa; myTarget = p.sa; lastSentTarget = p.sa; snapCam = true; }
       }
@@ -229,14 +244,16 @@
 
   function updateRemoteDisplay(dt) {
     const mul = remote.speedMul;
-    predAngle = FE.wrapAngle(FE.turnToward(predAngle, myTarget, TURN * mul * dt));
+    const myP = me();
+    predAngle = FE.wrapAngle(FE.turnToward(predAngle, myTarget, TURN * mul * (myP && myP.boost ? FE.BOOST : 1) * dt));
     const now = performance.now();
     const k = Math.min(1, dt * 14);
     for (const p of remote.players) {
       if (!p || !p.alive) continue;
       const age = Math.min(0.2, (now - p.snapAt) / 1000);
       const a = p.id === myId ? predAngle : p.sa;
-      const tx = p.sx + Math.cos(a) * SPEED * mul * age, ty = p.sy + Math.sin(a) * SPEED * mul * age;
+      const v = SPEED * mul * (p.boost ? FE.BOOST : 1);
+      const tx = p.sx + Math.cos(a) * v * age, ty = p.sy + Math.sin(a) * v * age;
       p.x += (tx - p.x) * k;
       p.y += (ty - p.y) * k;
       p.angle = p.id === myId ? predAngle : FE.wrapAngle(FE.turnToward(p.angle, p.sa, 12 * mul * dt));
@@ -532,6 +549,7 @@
   const moctx = miniOff.getContext('2d');
   const miniImg = moctx.createImageData(W, H);
   const rbFlag = new Uint8Array(256);
+  const spFlag = new Uint8Array(256);
 
   let dpr = 1, cw = 0, ch = 0, cellPx = 30, viewOx = 0, viewOy = 0, snapCam = false;
   function resize() {
@@ -699,8 +717,15 @@
     viewOx = ox; viewOy = oy;
 
     rbFlag.fill(0);
-    let anyRb = false;
-    for (const p of players) if (p && isRb(p)) { rbFlag[p.id] = 1; anyRb = true; }
+    spFlag.fill(0);
+    let anyRb = false, anyDeco = false;
+    for (const p of players) {
+      if (!p) continue;
+      const sp = SP_CODE[FE.specialOf(p.name)] || 0;
+      spFlag[p.id] = sp;
+      if (sp === 1) { rbFlag[p.id] = 1; anyRb = true; }
+      if (sp === 2 || sp === 3) anyDeco = true;
+    }
 
     // Hintergrund außerhalb und Spielfeld mit runden Ecken
     const bg = ctx.createLinearGradient(0, 0, cw, ch);
@@ -758,6 +783,43 @@
     for (const g of groups) { ctx.fillStyle = g.dark; ctx.fill(g.path, 'evenodd'); }
     ctx.restore();
     for (const g of groups) { ctx.fillStyle = g.top; ctx.fill(g.path, 'evenodd'); }
+
+    // Muster im Gebiet: Kaktus-Stacheln und McQueen-Blitze
+    if (anyDeco) {
+      const spikes = new Path2D(), bolts = new Path2D();
+      for (let y = Math.max(1, y0); y <= Math.min(H - 2, y1); y++) {
+        for (let x = Math.max(1, x0); x <= Math.min(W - 2, x1); x++) {
+          const i = y * W + x, o = owner[i], sp = spFlag[o];
+          if (sp !== 2 && sp !== 3) continue;
+          if (owner[i - 1] !== o || owner[i + 1] !== o || owner[i - W] !== o || owner[i + W] !== o) continue;
+          const h = cellHash(x, y);
+          const cx = ox + (x + 0.5) * cell, cy = oy + (y + 0.5) * cell;
+          if (sp === 2 && h % 4 === 0) {
+            const L = cell * 0.22;
+            for (let k = 0; k < 3; k++) {
+              const a = (h % 6) * 0.3 + (k * Math.PI) / 3;
+              spikes.moveTo(cx - Math.cos(a) * L, cy - Math.sin(a) * L);
+              spikes.lineTo(cx + Math.cos(a) * L, cy + Math.sin(a) * L);
+            }
+          } else if (sp === 3 && h % 6 === 0) {
+            const u = cell * 0.18;
+            bolts.moveTo(cx + u * 0.4, cy - u * 1.6);
+            bolts.lineTo(cx - u * 0.8, cy + u * 0.2);
+            bolts.lineTo(cx, cy + u * 0.2);
+            bolts.lineTo(cx - u * 0.4, cy + u * 1.6);
+            bolts.lineTo(cx + u * 0.8, cy - u * 0.2);
+            bolts.lineTo(cx, cy - u * 0.2);
+            bolts.closePath();
+          }
+        }
+      }
+      ctx.strokeStyle = 'rgba(20, 83, 45, .55)';
+      ctx.lineWidth = Math.max(1, cell * 0.06);
+      ctx.lineCap = 'round';
+      ctx.stroke(spikes);
+      ctx.fillStyle = 'rgba(253, 224, 71, .9)';
+      ctx.fill(bolts);
+    }
 
     // Spuren als weiche Schläuche
     for (const t of trailIds) {
@@ -834,6 +896,29 @@
       ctx.stroke();
       ctx.fillStyle = 'rgba(255,255,255,.28)';
       ctx.beginPath(); ctx.ellipse(sx - hr * 0.3, sy - hr * 0.38, hr * 0.42, hr * 0.24, -0.5, 0, Math.PI * 2); ctx.fill();
+      const sp = spFlag[p.id];
+      if (sp === 2) {
+        // Kaktus: Rillen und Stacheln rundherum
+        ctx.save();
+        ctx.beginPath(); ctx.arc(sx, sy, hr * 0.92, 0, Math.PI * 2); ctx.clip();
+        ctx.strokeStyle = 'rgba(21, 128, 61, .7)';
+        ctx.lineWidth = Math.max(1, cell * 0.06);
+        for (const f of [-0.5, 0, 0.5]) {
+          ctx.beginPath(); ctx.ellipse(sx + f * hr, sy, hr * 0.12, hr, 0, 0, Math.PI * 2); ctx.stroke();
+        }
+        ctx.restore();
+        ctx.fillStyle = '#fff';
+        for (let k = 0; k < 12; k++) {
+          const a = (k / 12) * Math.PI * 2 + 0.26;
+          const ca = Math.cos(a), sa = Math.sin(a);
+          ctx.beginPath();
+          ctx.moveTo(sx + ca * (hr + hr * 0.38), sy + sa * (hr + hr * 0.38));
+          ctx.lineTo(sx + ca * hr * 0.95 - sa * hr * 0.1, sy + sa * hr * 0.95 + ca * hr * 0.1);
+          ctx.lineTo(sx + ca * hr * 0.95 + sa * hr * 0.1, sy + sa * hr * 0.95 - ca * hr * 0.1);
+          ctx.closePath();
+          ctx.fill();
+        }
+      }
 
       // Augen
       const c = Math.cos(p.ra), s = Math.sin(p.ra);
@@ -847,8 +932,39 @@
         ctx.beginPath(); ctx.arc(cx2 + c * size * 0.055, cy2 + s * size * 0.055, size * 0.075, 0, Math.PI * 2); ctx.fill();
       }
 
-      // Einhorn-Horn
       let nameY = sy - hr - cell * 0.2;
+      if (sp === 2) {
+        // Kaktus: pinke Blüte oben drauf
+        const fx = sx + hr * 0.15, fy = sy - hr * 1.05, pr = hr * 0.2;
+        ctx.fillStyle = '#f472b6';
+        for (let k = 0; k < 5; k++) {
+          const a = (k / 5) * Math.PI * 2 - Math.PI / 2;
+          ctx.beginPath(); ctx.arc(fx + Math.cos(a) * pr, fy + Math.sin(a) * pr, pr * 0.85, 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.fillStyle = '#fde047';
+        ctx.beginPath(); ctx.arc(fx, fy, pr * 0.7, 0, Math.PI * 2); ctx.fill();
+        nameY = fy - pr * 1.9;
+      } else if (sp === 3) {
+        // Lightning McQueen: gelber Blitz oben drauf
+        const bx = sx, by = sy - hr * 0.7, u = hr * 0.32;
+        ctx.beginPath();
+        ctx.moveTo(bx + u * 0.6, by - u * 2.6);
+        ctx.lineTo(bx - u * 1.1, by - u * 0.6);
+        ctx.lineTo(bx - u * 0.05, by - u * 0.6);
+        ctx.lineTo(bx - u * 0.6, by + u * 0.9);
+        ctx.lineTo(bx + u * 1.1, by - u * 1.2);
+        ctx.lineTo(bx + u * 0.05, by - u * 1.2);
+        ctx.closePath();
+        ctx.fillStyle = '#facc15';
+        ctx.fill();
+        ctx.strokeStyle = '#b45309';
+        ctx.lineWidth = Math.max(1, cell * 0.04);
+        ctx.lineJoin = 'round';
+        ctx.stroke();
+        nameY = by - u * 2.8;
+      }
+
+      // Einhorn-Horn
       if (rb) {
         const bx = sx, by = sy - hr * 0.75, tipX = bx + size * 0.05, tipY = by - size * 0.6;
         ctx.beginPath();
@@ -899,6 +1015,31 @@
       ctx.beginPath();
       ctx.arc(ox + q.x * cell, oy + q.y * cell, (q.size * cell) / 2, 0, Math.PI * 2);
       ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    // Kaktus-Stachelringe
+    for (const b of blasts) {
+      const t = 1 - b.life / 0.6;
+      const R = b.r * cell * (0.25 + 0.75 * Math.sqrt(t));
+      const bx = ox + b.x * cell, by = oy + b.y * cell;
+      ctx.globalAlpha = Math.max(0, b.life / 0.6);
+      ctx.fillStyle = 'rgba(34, 197, 94, .18)';
+      ctx.beginPath(); ctx.arc(bx, by, R, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#16a34a';
+      ctx.lineWidth = Math.max(2, cell * 0.14);
+      ctx.stroke();
+      ctx.fillStyle = '#15803d';
+      for (let k = 0; k < 20; k++) {
+        const a = (k / 20) * Math.PI * 2 + t;
+        const ca = Math.cos(a), sa = Math.sin(a), w = cell * 0.22;
+        ctx.beginPath();
+        ctx.moveTo(bx + ca * (R + cell * 0.6), by + sa * (R + cell * 0.6));
+        ctx.lineTo(bx + ca * R - sa * w, by + sa * R + ca * w);
+        ctx.lineTo(bx + ca * R + sa * w, by + sa * R - ca * w);
+        ctx.closePath();
+        ctx.fill();
+      }
     }
     ctx.globalAlpha = 1;
 
@@ -972,7 +1113,7 @@
     lbEl.innerHTML = html;
   }
 
-  const godBtn = $('godBtn');
+  const powerBtn = $('powerBtn');
   const statsEl = $('stats');
   function updateHud() {
     const p = me();
@@ -980,16 +1121,23 @@
       const bgc = isRb(p) ? RAINBOW_CSS : `linear-gradient(135deg, ${colorOf(p).base}, ${colorOf(p).dark})`;
       if (statsEl.dataset.bg !== bgc) { statsEl.dataset.bg = bgc; statsEl.style.background = bgc; }
     }
-    const showGod = ui === 'play' && !!p && p.alive && isRb(p);
-    if (godBtn.hidden === showGod) godBtn.hidden = !showGod;
-    if (showGod) {
-      const on = !!p.invincible;
-      if (godBtn.dataset.on !== String(on)) {
-        godBtn.dataset.on = String(on);
-        godBtn.classList.toggle('on', on);
-        godBtn.setAttribute('aria-pressed', String(on));
-        $('godState').textContent = on ? 'AN' : 'AUS';
+    // Spezialkraft-Knopf für Geheimnamen
+    const kind = ui === 'play' && p && p.alive ? FE.specialOf(p.name) : null;
+    if (powerBtn.hidden === !!kind) powerBtn.hidden = !kind;
+    if (kind) {
+      let label, on = false, cooling = false;
+      if (kind === 'einhorn') { on = !!p.invincible; label = `🦄 Unsterblich: ${on ? 'AN' : 'AUS'}`; }
+      else if (kind === 'mcqueen') { on = !!p.boost; label = `⚡ Turbo 5×: ${on ? 'AN' : 'AUS'}`; }
+      else {
+        const left = (blastReadyAt - performance.now()) / 1000;
+        cooling = left > 0;
+        label = cooling ? `🌵 Lädt … ${left.toFixed(1).replace('.', ',')} s` : '🌵 Stacheln!';
       }
+      if (powerBtn.textContent !== label) powerBtn.textContent = label;
+      if (powerBtn.dataset.kind !== kind) powerBtn.dataset.kind = kind;
+      powerBtn.classList.toggle('on', on);
+      powerBtn.classList.toggle('cooldown', cooling);
+      powerBtn.setAttribute('aria-pressed', String(on));
     }
     if (ui === 'play' && p && p.alive) {
       const pct = (p.count / N) * 100;
@@ -1088,7 +1236,8 @@
   }
 
   function updateNameFx() {
-    nameInput.classList.toggle('einhorn', FE.isRainbowName(nameInput.value));
+    const kind = FE.specialOf(nameInput.value);
+    for (const k of ['einhorn', 'kaktus', 'mcqueen']) nameInput.classList.toggle(k, kind === k);
   }
 
   function showGameOver() {
@@ -1098,6 +1247,7 @@
       self: 'Du bist über deine eigene Spur gefahren.',
       head: `${r.killer || 'Jemand'} hat dich frontal gerammt.`,
       wiped: `${r.killer || 'Jemand'} hat dein ganzes Gebiet eingenommen.`,
+      cactus: `${r.killer || 'Jemand'} hat dich mit Stacheln erwischt.`,
       trail: `${r.killer || 'Jemand'} hat deine Spur gekreuzt.`,
     };
     $('overTitle').textContent = r.isRecord ? 'Neuer Rekord!' : 'Erwischt!';
@@ -1129,14 +1279,23 @@
   $('codeInput').addEventListener('keydown', e => { if (e.key === 'Enter') joinRoom(); e.stopPropagation(); });
   $('codeInput').addEventListener('input', e => { e.target.value = e.target.value.toUpperCase(); });
 
-  function toggleGod() {
+  // Spezialkraft auslösen: Einhorn = unsterblich an/aus, McQueen = Turbo an/aus, Kaktus = Stacheln
+  function usePower() {
     const p = me();
-    if (ui !== 'play' || !p || !p.alive || !isRb(p)) return;
-    if (isRemote()) { if (session.link) session.link.send({ t: 'god', on: !p.invincible }); }
-    else localEngine.setInvincible(localHuman, !localHuman.invincible);
+    if (ui !== 'play' || !p || !p.alive) return;
+    const kind = FE.specialOf(p.name);
+    const send = m => { if (session.link) session.link.send(m); };
+    if (kind === 'einhorn') {
+      if (isRemote()) send({ t: 'god', on: !p.invincible }); else localEngine.setInvincible(localHuman, !localHuman.invincible);
+    } else if (kind === 'mcqueen') {
+      if (isRemote()) send({ t: 'boost', on: !p.boost }); else localEngine.setBoost(localHuman, !localHuman.boost);
+    } else if (kind === 'kaktus') {
+      if (performance.now() < blastReadyAt) return;
+      if (isRemote()) send({ t: 'blast' }); else localEngine.blast(localHuman);
+    }
   }
-  godBtn.addEventListener('click', e => { e.stopPropagation(); toggleGod(); godBtn.blur(); });
-  godBtn.addEventListener('touchstart', e => e.stopPropagation(), { passive: true });
+  powerBtn.addEventListener('click', e => { e.stopPropagation(); usePower(); powerBtn.blur(); });
+  powerBtn.addEventListener('touchstart', e => e.stopPropagation(), { passive: true });
 
   // ---------- Eingabe ----------
   function setMyTarget(a) {
@@ -1151,7 +1310,7 @@
     if (dx * dx + dy * dy < 16) return;
     setMyTarget(Math.atan2(dy, dx));
   }
-  window.addEventListener('mousemove', e => { if (e.target !== godBtn && !godBtn.contains(e.target)) aimAt(e.clientX, e.clientY); });
+  window.addEventListener('mousemove', e => { if (e.target !== powerBtn && !powerBtn.contains(e.target)) aimAt(e.clientX, e.clientY); });
   const onTouch = e => {
     if (ui !== 'play') return;
     e.preventDefault();
@@ -1169,7 +1328,7 @@
   };
   window.addEventListener('keydown', e => {
     if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') { togglePause(); return; }
-    if (e.key === 'u' || e.key === 'U') { toggleGod(); return; }
+    if (e.key === 'u' || e.key === 'U' || e.key === ' ') { e.preventDefault(); usePower(); return; }
     if (e.key in KEY_DIRS) {
       e.preventDefault();
       const p = me();
@@ -1227,7 +1386,7 @@
       const alpha = paused ? 1 : Math.min(1, acc / FE.STEP);
       for (const q of localEngine.players) {
         if (!q) continue;
-        if (q.px === undefined || Math.abs(q.x - q.px) + Math.abs(q.y - q.py) > 2 + 3 * SPEED * localEngine.speedMul * FE.STEP) { q.rx = q.x; q.ry = q.y; q.ra = q.angle; continue; }
+        if (q.px === undefined || Math.abs(q.x - q.px) + Math.abs(q.y - q.py) > 2 + 3 * SPEED * localEngine.speedMul * FE.BOOST * FE.STEP) { q.rx = q.x; q.ry = q.y; q.ra = q.angle; continue; }
         q.rx = q.px + (q.x - q.px) * alpha;
         q.ry = q.py + (q.y - q.py) * alpha;
         q.ra = q.pa + FE.wrapAngle(q.angle - q.pa) * alpha;
@@ -1245,6 +1404,22 @@
         q.vx *= Math.pow(0.94, dt * 60); q.vy *= Math.pow(0.94, dt * 60);
         q.life -= dt;
         if (q.life <= 0) particles.splice(k, 1);
+      }
+      for (let k = blasts.length - 1; k >= 0; k--) {
+        blasts[k].life -= dt;
+        if (blasts[k].life <= 0) blasts.splice(k, 1);
+      }
+      // Turbo-Flammen hinter Lightning McQueen
+      for (const q of world.players) {
+        if (!q || !q.alive || !q.boost || q.rx === undefined) continue;
+        for (let n = 0; n < 2; n++) {
+          const a = q.ra + Math.PI + rand(-0.35, 0.35), v = rand(3, 7);
+          particles.push({
+            x: q.rx + Math.cos(q.ra + Math.PI) * 0.55, y: q.ry + Math.sin(q.ra + Math.PI) * 0.55,
+            vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: rand(0.2, 0.4),
+            color: ['#facc15', '#fb923c', '#ef4444'][n + (Math.random() < 0.5 ? 0 : 1)], size: rand(0.25, 0.45),
+          });
+        }
       }
       for (let k = floaters.length - 1; k >= 0; k--) {
         const f = floaters[k];
@@ -1271,7 +1446,7 @@
       cam.x += (tx - cam.x) * f;
       cam.y += (ty - cam.y) * f;
     }
-    const zTarget = 1 + 0.22 * Math.log2(curSpeed());
+    const zTarget = 1 + 0.22 * Math.log2(curSpeed() * (p && p.alive && p.boost ? 2.5 : 1));
     zoom += (zTarget - zoom) * Math.min(1, dt * 3);
 
     const rt = now / 1000;

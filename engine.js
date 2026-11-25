@@ -26,7 +26,12 @@
   const BOT_NAMES = ['Blitz', 'Kringel', 'Pixelfuchs', 'Zickzack', 'Quadrat', 'Rakete', 'Kurve',
     'Nebel', 'Kobold', 'Schnecke', 'Turbo', 'Glitzer', 'Wirbel', 'Funke', 'Brummer', 'Klecks',
     'Komet', 'Zappel', 'Murmel', 'Flitzer', 'Krümel', 'Sputnik', 'Bummler', 'Tornado', 'Schatten',
-    'Biber', 'Pinguin', 'Panda', 'Igel', 'Kaktus', 'Waffel', 'Socke', 'Pudding', 'Kiwi'];
+    'Biber', 'Pinguin', 'Panda', 'Igel', 'Gurke', 'Waffel', 'Socke', 'Pudding', 'Kiwi'];
+
+  // Geheimnamen mit Spezialkraft
+  const BOOST = 5;            // Turbo von Lightning McQueen
+  const BLAST_RADIUS = 6;     // Reichweite des Kaktus-Stachelangriffs (Felder)
+  const BLAST_COOLDOWN = 3;   // Sekunden bis der Kaktus wieder zustechen kann
 
   const rand = (a, b) => a + Math.random() * (b - a);
   const randi = (a, b) => Math.floor(rand(a, b + 1));
@@ -40,14 +45,34 @@
     return Math.abs(d) <= max ? t : a + Math.sign(d) * max;
   };
 
+  /**
+   * Geheimnamen: 'einhorn' (Regenbogen + unsterblich), 'kaktus' (Stachelangriff),
+   * 'mcqueen' (Lightning McQueen: Turbo). Groß-/Kleinschreibung und Leerzeichen egal.
+   */
+  function specialOf(name) {
+    const n = String(name == null ? '' : name).toLowerCase().replace(/\s+/g, ' ').trim();
+    if (n === 'einhorn') return 'einhorn';
+    if (n === 'kaktus') return 'kaktus';
+    if (n === 'lightning mcqueen' || n === 'lightningmcqueen') return 'mcqueen';
+    return null;
+  }
+
   /** Heißt ein Spieler "Einhorn", wird sein Gebiet zum glitzernden Regenbogen. */
   function isRainbowName(name) {
-    return typeof name === 'string' && name.trim().toLowerCase() === 'einhorn';
+    return specialOf(name) === 'einhorn';
   }
 
   function cleanName(name, fallback) {
-    const n = String(name == null ? '' : name).replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 14);
+    const n = String(name == null ? '' : name).replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 18);
     return n || fallback;
+  }
+
+  // Kaktus ist immer grün, Lightning McQueen immer rot
+  function colorFor(name, color) {
+    const sp = specialOf(name);
+    if (sp === 'kaktus') return 4;
+    if (sp === 'mcqueen') return 0;
+    return color;
   }
 
   function cleanColor(c) {
@@ -115,7 +140,7 @@
         id, isBot, name: '', color: 0, alive: false,
         x: 0, y: 0, cx: 0, cy: 0, angle: 0, target: 0,
         trail: [], count: 0, bx0: W, by0: H, bx1: -1, by1: -1,
-        kills: 0, bestPct: 0, spawnTime: 0, respawnAt: 0, invincible: false,
+        kills: 0, bestPct: 0, spawnTime: 0, respawnAt: 0, invincible: false, boost: false, blastReadyAt: 0,
         ai: { mode: 'home', plan: null, home: null, homeTimer: 0, tick: 0, aggr: Math.random(), hunt: -1, huntUntil: 0 },
       };
     }
@@ -544,16 +569,24 @@
       eng.stepCount++;
       // Bei hohem Tempo in Teilschritte zerlegen, damit kein Feld übersprungen wird
       const mul = eng.speedMul;
-      const n = Math.max(1, Math.ceil((SPEED * mul * STEP) / MAX_SUBSTEP));
+      let maxBoost = 1;
+      for (const p of players) if (p && p.alive && p.boost) maxBoost = BOOST;
+      const nBase = Math.max(1, Math.ceil((SPEED * mul * STEP) / MAX_SUBSTEP));
+      const n = Math.max(1, Math.ceil((SPEED * mul * maxBoost * STEP) / MAX_SUBSTEP));
+      const thinkEvery = Math.max(1, Math.round(n / nBase));   // Bots denken nicht öfter als nötig
       const dist = (SPEED * mul * STEP) / n, turn = (TURN * mul * STEP) / n, gdt = (STEP * mul) / n;
       for (let sub = 0; sub < n; sub++) {
-        for (let k = 1; k < players.length; k++) {
-          const p = players[k];
-          if (p && p.alive && p.isBot) botThink(p, gdt);
+        if (sub % thinkEvery === 0) {
+          for (let k = 1; k < players.length; k++) {
+            const p = players[k];
+            if (p && p.alive && p.isBot) botThink(p, gdt * thinkEvery);
+          }
         }
         for (let k = 1; k < players.length; k++) {
           const p = players[k];
-          if (p && p.alive) move(p, dist, turn);
+          if (!p || !p.alive) continue;
+          const b = p.boost ? BOOST : 1;      // Turbo: schneller, Kurven gleich eng
+          move(p, dist * b, turn * b);
         }
         headCollisions();
       }
@@ -571,7 +604,7 @@
       if (id < 0) return null;
       const p = newPlayer(id, false);
       p.name = cleanName(name, 'Spieler');
-      p.color = cleanColor(color);
+      p.color = colorFor(p.name, cleanColor(color));
       players[id] = p;
       eng.metaVersion++;
       emit({ k: 'join', id, n: p.name });
@@ -582,7 +615,10 @@
       if (!p || p.alive || players[p.id] !== p) return;
       if (name !== undefined) p.name = cleanName(name, p.name || 'Spieler');
       if (color !== undefined) p.color = cleanColor(color);
-      if (!isRainbowName(p.name)) p.invincible = false;
+      p.color = colorFor(p.name, p.color);
+      const sp = specialOf(p.name);
+      if (sp !== 'einhorn') p.invincible = false;
+      if (sp !== 'mcqueen') p.boost = false;
       // Bots mit derselben Farbe bekommen eine andere
       for (const q of players) if (q && q.isBot && q.color === p.color) giveBotIdentity(q);
       spawn(p);
@@ -594,6 +630,29 @@
       if (p.alive) kill(p, null, 'leave');
       players[p.id] = null;
       eng.metaVersion++;
+    };
+
+    /** Turbo an/aus – nur für Spieler namens "Lightning McQueen". */
+    eng.setBoost = function (p, on) {
+      if (!p || p.isBot || players[p.id] !== p || specialOf(p.name) !== 'mcqueen') return false;
+      on = !!on;
+      if (p.boost === on) return true;
+      p.boost = on;
+      emit({ k: 'boost', id: p.id, on: on ? 1 : 0, n: p.name });
+      return true;
+    };
+
+    /** Stachelangriff – nur für Spieler namens "Kaktus": schaltet alle in der Nähe aus. */
+    eng.blast = function (p) {
+      if (!p || p.isBot || !p.alive || players[p.id] !== p || specialOf(p.name) !== 'kaktus') return false;
+      if (eng.time < p.blastReadyAt) return false;
+      p.blastReadyAt = eng.time + BLAST_COOLDOWN;
+      emit({ k: 'blast', id: p.id, x: Math.round(p.x * 100) / 100, y: Math.round(p.y * 100) / 100, r: BLAST_RADIUS, cd: BLAST_COOLDOWN });
+      for (const q of players) {
+        if (!q || q === p || !q.alive) continue;
+        if (Math.hypot(q.x - p.x, q.y - p.y) <= BLAST_RADIUS) kill(q, p, 'cactus');
+      }
+      return true;
     };
 
     /** Unsterblichkeit an/aus – nur für Spieler namens "Einhorn". */
@@ -637,7 +696,7 @@
       for (const p of players) {
         if (!p) continue;
         out.push([p.id, Math.round(p.x * 100), Math.round(p.y * 100), Math.round(p.angle * 1000),
-          p.alive ? 1 : 0, p.count, p.kills, Math.round(p.spawnTime * 10), p.invincible ? 1 : 0]);
+          p.alive ? 1 : 0, p.count, p.kills, Math.round(p.spawnTime * 10), p.invincible ? 1 : 0, p.boost ? 1 : 0]);
       }
       return out;
     }
@@ -711,6 +770,10 @@
           engine.setTarget(c.player, Number(msg.a));
         } else if (msg.t === 'god' && c.player) {
           engine.setInvincible(c.player, !!msg.on);
+        } else if (msg.t === 'boost' && c.player) {
+          engine.setBoost(c.player, !!msg.on);
+        } else if (msg.t === 'blast' && c.player) {
+          engine.blast(c.player);
         }
       },
       // Nach jedem Simulationsschritt aufrufen; schickt 20x pro Sekunde ein Update.
@@ -726,6 +789,7 @@
 
   return {
     W, H, N, SPEED, TURN, STEP, COLOR_COUNT, SPEEDS,
-    createEngine, createHub, isRainbowName, cleanName, wrapAngle, turnToward, rleDecode,
+    BOOST, BLAST_RADIUS, BLAST_COOLDOWN,
+    createEngine, createHub, isRainbowName, specialOf, cleanName, wrapAngle, turnToward, rleDecode,
   };
 });

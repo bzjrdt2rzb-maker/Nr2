@@ -63,7 +63,7 @@ html, body {
 #stats .big { font-family: var(--fun); font-size: 32px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
 #stats #sub { font-size: 14px; font-weight: 800; opacity: .95; font-variant-numeric: tabular-nums; }
 
-#godBtn {
+#powerBtn {
   pointer-events: auto;
   font-family: var(--fun);
   font-size: 17px;
@@ -78,10 +78,10 @@ html, body {
   touch-action: manipulation;
   transition: transform .15s ease;
 }
-#godBtn:hover { transform: translateY(-1px); }
-#godBtn:active { transform: scale(.96); }
-#godBtn[hidden] { display: none; }
-#godBtn.on {
+#powerBtn:hover { transform: translateY(-1px); }
+#powerBtn:active { transform: scale(.96); }
+#powerBtn[hidden] { display: none; }
+#powerBtn.on {
   background: var(--rainbow);
   background-size: 200% 100%;
   color: #fff;
@@ -90,7 +90,27 @@ html, body {
   box-shadow: 0 0 24px rgba(253, 230, 138, .95), var(--bubble);
   animation: rainbowSlide 1.5s linear infinite;
 }
-#godBtn:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
+#powerBtn[data-kind="kaktus"] {
+  background: linear-gradient(135deg, #4ade80, #15803d);
+  color: #fff;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, .2);
+  box-shadow: 0 6px 0 #14532d, 0 14px 30px rgba(43, 29, 78, .22);
+}
+#powerBtn[data-kind="kaktus"].cooldown { filter: saturate(.35) brightness(1.1); }
+#powerBtn[data-kind="mcqueen"] {
+  background: linear-gradient(135deg, #f87171, #dc2626);
+  color: #fff;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, .25);
+  box-shadow: 0 6px 0 #991b1b, 0 14px 30px rgba(43, 29, 78, .22);
+}
+#powerBtn[data-kind="mcqueen"].on {
+  background: linear-gradient(90deg, #ef4444, #f97316, #facc15, #f97316, #ef4444);
+  background-size: 200% 100%;
+  border-color: #fde047;
+  box-shadow: 0 0 24px rgba(250, 204, 21, .9), 0 6px 0 #991b1b;
+  animation: rainbowSlide .7s linear infinite;
+}
+#powerBtn:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
 @keyframes rainbowSlide { to { background-position: -200% 0; } }
 
 #leaderboard {
@@ -333,6 +353,14 @@ h2 { margin: 6px 0 8px; font-size: 34px; color: var(--grape); }
   animation: rainbowInput 2s linear infinite;
 }
 @keyframes rainbowInput { to { background-position: 0 0, -200% 0; } }
+#nameInput.kaktus { border-color: #22c55e; background: #f0fdf4; color: #15803d; }
+#nameInput.mcqueen {
+  border-color: transparent;
+  color: #b91c1c;
+  background:
+    linear-gradient(#fff, #fff) padding-box,
+    linear-gradient(90deg, #ef4444, #facc15, #ef4444) border-box;
+}
 
 #swatches {
   display: flex;
@@ -487,7 +515,7 @@ h2 { margin: 6px 0 8px; font-size: 34px; color: var(--grape); }
 #overNote:empty { display: none; }
 
 @media (prefers-reduced-motion: reduce) {
-  #nameInput.einhorn, #godBtn.on, .panel, #feed .msg, .logo span { animation: none; }
+  #nameInput.einhorn, #powerBtn.on, .panel, #feed .msg, .logo span { animation: none; }
 }
 
 @media (max-width: 600px) {
@@ -511,6 +539,6 @@ h2 { margin: 6px 0 8px; font-size: 34px; color: var(--grape); }
   .panel { padding: 24px 18px 18px; border-radius: 28px; }
   .logo { font-size: 38px; }
   #feed { top: auto; bottom: calc(185px + env(safe-area-inset-bottom, 0px)); }
-  #godBtn { font-size: 15px; padding: 8px 14px; }
+  #powerBtn { font-size: 15px; padding: 8px 14px; }
   #speedBtns button { font-size: 13px; padding: 8px 0; }
 }

@@ -22,7 +22,22 @@ also auch für die Bots. Bei hohem Tempo zoomt die Ansicht etwas heraus, damit d
 - **Online-Server:** feste Einstellung des Servers über die Umgebungsvariable `SPEED` (Standard `1`),
   bei Render unter *Environment* einstellbar
 
-### Einhorn-Modus 🦄
+### Geheimnamen
+
+Bestimmte Namen geben deiner Figur ein eigenes Aussehen und eine Spezialkraft. Während des Spiels erscheint
+dann unten links ein Knopf dafür (am Computer auch Taste **U** oder **Leertaste**). Groß- und Kleinschreibung
+ist egal. Das gilt in allen Modi, und Mitspieler sehen Aussehen und Effekte ebenfalls. Im Mehrspieler-Modus
+prüft der Server bzw. Gastgeber den Namen – wer anders heißt, kann die Kräfte nicht benutzen.
+
+| Name | Aussehen | Knopf |
+| --- | --- | --- |
+| **Einhorn** 🦄 | Glitzerndes Regenbogen-Gebiet, Horn | **Unsterblich** an/aus |
+| **Kaktus** 🌵 | Grün mit Stacheln und Blüte | **Stacheln!** – schaltet alle Spieler im Umkreis von 6 Feldern aus, danach 3 Sekunden Abklingzeit |
+| **Lightning McQueen** ⚡ | Rot mit Blitz, Flammen beim Turbo | **Turbo** an/aus – 5× so schnell (Kurven bleiben gleich eng) |
+
+Einhorn, Kaktus und McQueen schalten sich nicht gegenseitig aus: Ein unsterbliches Einhorn übersteht auch die Kaktus-Stacheln.
+
+#### Einhorn im Detail
 
 Heißt ein Spieler **Einhorn**, wird sein Gebiet zum glitzernden Regenbogen, und seine Figur bekommt ein Horn.
 Das gilt in allen Modi und ist für alle Mitspieler sichtbar.
@@ -50,7 +65,7 @@ Nochmal drücken schaltet es wieder aus.
 | Pfeiltasten / WASD | Richtung wechseln |
 | Touch | Finger auf den Bildschirm – die Figur fährt in diese Richtung |
 | P / Esc | Pause (nur allein) |
-| U | Unsterblich an/aus (nur als Einhorn) |
+| U / Leertaste | Spezialkraft (nur mit Geheimnamen) |
 
 ## Online stellen
 
