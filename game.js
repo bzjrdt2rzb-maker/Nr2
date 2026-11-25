@@ -33,7 +33,7 @@
 
   // ---------- Regenbogen (Einhorn) ----------
   const HUES = 48;
-  const RB_TOP = [], RB_DARK = [], RB_TRAIL = [], RB_RGB = [], RB_TRAIL_RGB = [];
+  const RB_TOP = [], RB_DARK = [], RB_RGB = [], RB_TRAIL_RGB = [];
   function hslRgb(h, s, l) {
     const f = n => {
       const k = (n + h / 30) % 12;
@@ -45,7 +45,6 @@
     const h = (k * 360) / HUES;
     RB_TOP.push(`hsl(${h},90%,62%)`);
     RB_DARK.push(`hsl(${h},80%,42%)`);
-    RB_TRAIL.push(`hsla(${h},95%,72%,0.65)`);
     RB_RGB.push(hslRgb(h, 0.9, 0.62));
     RB_TRAIL_RGB.push(hslRgb(h, 0.95, 0.82));
   }
@@ -568,6 +567,127 @@
     ctx.fill();
   }
 
+  const FONT = '"Nunito", system-ui, -apple-system, "Segoe UI", sans-serif';
+
+  // Punktraster als Hintergrund-Muster (wird nur bei neuer Zellgröße neu erzeugt)
+  let bgPattern = null, bgPatternCell = 0;
+  function bgPatternFor(cell) {
+    if (bgPattern && bgPatternCell === cell) return bgPattern;
+    const c = document.createElement('canvas');
+    c.width = c.height = cell;
+    const g = c.getContext('2d');
+    g.fillStyle = '#eef1f7';
+    g.fillRect(0, 0, cell, cell);
+    g.fillStyle = '#d5dbe7';
+    g.beginPath();
+    g.arc(cell / 2, cell / 2, Math.max(1, cell * 0.06), 0, Math.PI * 2);
+    g.fill();
+    bgPattern = ctx.createPattern(c, 'repeat');
+    bgPatternCell = cell;
+    return bgPattern;
+  }
+
+  // ---------- Weiche Konturen ----------
+  // Das Raster wird pro Spieler leicht geglättet (Mitte + Nachbarn) und daraus
+  // mit "Marching Squares" eine weiche Umrisslinie berechnet. So werden aus
+  // Treppenstufen runde Kurven.
+  let fieldBuf = new Float32Array(0);
+  function smoothField(src, id, xa, ya, ww, wh) {
+    if (fieldBuf.length < ww * wh) fieldBuf = new Float32Array(ww * wh * 2);
+    const v = fieldBuf;
+    const occ = (x, y) => (x < 0 || y < 0 || x >= W || y >= H ? 0 : (src[y * W + x] === id ? 1 : 0));
+    for (let j = 0; j < wh; j++) {
+      const y = ya + j;
+      for (let i = 0; i < ww; i++) {
+        const x = xa + i;
+        if (i === 0 || j === 0 || i === ww - 1 || j === wh - 1) { v[j * ww + i] = 0; continue; }
+        v[j * ww + i] = 0.5 * occ(x, y)
+          + 0.1 * (occ(x - 1, y) + occ(x + 1, y) + occ(x, y - 1) + occ(x, y + 1))
+          + 0.025 * (occ(x - 1, y - 1) + occ(x + 1, y - 1) + occ(x - 1, y + 1) + occ(x + 1, y + 1));
+      }
+    }
+    return v;
+  }
+
+  // Fließender Regenbogen-Verlauf über den Bildschirm (diagonal, bewegt sich mit der Zeit).
+  // Ein Farbzyklus entspricht 16 Feldern – passend zur Minikarte.
+  function rainbowGradient(ox, oy, cell, rt, light, alpha) {
+    const D = cw + ch;
+    const g = ctx.createLinearGradient(0, 0, D, D);
+    const cycles = (2 * D) / cell / 16;
+    const n = Math.min(400, Math.ceil(cycles * 12) + 2);
+    for (let k = 0; k <= n; k++) {
+      const pos = k / n;
+      const sum = (pos * 2 * D - ox - oy) / cell;               // ≈ x + y in Feldern
+      const hue = ((((sum * 3 + rt * 24) / HUES) * 360) % 360 + 360) % 360;
+      g.addColorStop(pos, `hsla(${hue.toFixed(1)},90%,${light}%,${alpha})`);
+    }
+    return g;
+  }
+
+  // Berechnet aus dem geglätteten Feld geschlossene Umrisslinien (Marching Squares)
+  // und fügt sie als weiche Kurven zum Pfad hinzu. Füllen mit 'evenodd' (Löcher!).
+  // Segmente je Fall: Kanten 0=oben 1=rechts 2=unten 3=links
+  const MS_SEGS = [[], [3, 2], [2, 1], [3, 1], [0, 1], [3, 0, 2, 1], [0, 2], [3, 0],
+    [3, 0], [0, 2], [0, 1, 3, 2], [0, 1], [3, 1], [2, 1], [3, 2], []];
+  let msNb1 = new Int32Array(0), msNb2 = new Int32Array(0), msX = new Float32Array(0), msY = new Float32Array(0), msSeen = new Uint8Array(0);
+  function traceInto(path, v, ww, wh, xa, ya, iso, cell, ox, oy) {
+    const E = ww * wh * 2;
+    if (msNb1.length < E) {
+      msNb1 = new Int32Array(E * 2); msNb2 = new Int32Array(E * 2);
+      msX = new Float32Array(E * 2); msY = new Float32Array(E * 2); msSeen = new Uint8Array(E * 2);
+    }
+    const used = [];
+    const edgeId = (i, j, k) => (k === 0 ? (j * ww + i) * 2 : k === 2 ? ((j + 1) * ww + i) * 2 : k === 3 ? (j * ww + i) * 2 + 1 : (j * ww + i + 1) * 2 + 1);
+    for (let j = 0; j < wh - 1; j++) {
+      for (let i = 0; i < ww - 1; i++) {
+        const a = v[j * ww + i], b = v[j * ww + i + 1], c = v[(j + 1) * ww + i + 1], d = v[(j + 1) * ww + i];
+        const cs = (a >= iso ? 8 : 0) | (b >= iso ? 4 : 0) | (c >= iso ? 2 : 0) | (d >= iso ? 1 : 0);
+        const segs = MS_SEGS[cs];
+        if (!segs.length) continue;
+        const X0 = ox + (xa + i + 0.5) * cell, Y0 = oy + (ya + j + 0.5) * cell;
+        for (let s2 = 0; s2 < segs.length; s2 += 2) {
+          const ids = [];
+          for (const k of [segs[s2], segs[s2 + 1]]) {
+            const id = edgeId(i, j, k);
+            if (!msSeen[id]) {
+              msSeen[id] = 1; msNb1[id] = -1; msNb2[id] = -1; used.push(id);
+              if (k === 0) { msX[id] = X0 + cell * (iso - a) / (b - a); msY[id] = Y0; }
+              else if (k === 2) { msX[id] = X0 + cell * (iso - d) / (c - d); msY[id] = Y0 + cell; }
+              else if (k === 3) { msX[id] = X0; msY[id] = Y0 + cell * (iso - a) / (d - a); }
+              else { msX[id] = X0 + cell; msY[id] = Y0 + cell * (iso - b) / (c - b); }
+            }
+            ids.push(id);
+          }
+          const [e1, e2] = ids;
+          if (msNb1[e1] < 0) msNb1[e1] = e2; else msNb2[e1] = e2;
+          if (msNb1[e2] < 0) msNb1[e2] = e1; else msNb2[e2] = e1;
+        }
+      }
+    }
+    // Schleifen ablaufen und als Kurve durch die Kantenmitten zeichnen
+    for (const start of used) {
+      if (msSeen[start] !== 1) continue;
+      const xs = [], ys = [];
+      let prev = -1, cur = start;
+      while (cur >= 0 && msSeen[cur] === 1) {
+        msSeen[cur] = 2;
+        xs.push(msX[cur]); ys.push(msY[cur]);
+        const nxt = msNb1[cur] !== prev ? msNb1[cur] : msNb2[cur];
+        prev = cur; cur = nxt;
+      }
+      const n = xs.length;
+      if (n < 3) continue;
+      path.moveTo((xs[n - 1] + xs[0]) / 2, (ys[n - 1] + ys[0]) / 2);
+      for (let k = 0; k < n; k++) {
+        const k2 = (k + 1) % n;
+        path.quadraticCurveTo(xs[k], ys[k], (xs[k] + xs[k2]) / 2, (ys[k] + ys[k2]) / 2);
+      }
+      path.closePath();
+    }
+    for (const id of used) msSeen[id] = 0;
+  }
+
   function render(rt) {
     const cell = cellNow();
     const { owner, trailMap, players } = world;
@@ -578,70 +698,70 @@
     let anyRb = false;
     for (const p of players) if (p && isRb(p)) { rbFlag[p.id] = 1; anyRb = true; }
 
-    ctx.fillStyle = '#262b38';
+    // Hintergrund außerhalb und Spielfeld mit runden Ecken
+    const bg = ctx.createLinearGradient(0, 0, 0, ch);
+    bg.addColorStop(0, '#1e2333');
+    bg.addColorStop(1, '#141824');
+    ctx.fillStyle = bg;
     ctx.fillRect(0, 0, cw, ch);
-    ctx.fillStyle = '#f3f5f9';
-    ctx.fillRect(ox, oy, W * cell, H * cell);
+    const mapR = cell * 0.8;
+    ctx.strokeStyle = 'rgba(255,255,255,.07)';
+    ctx.lineWidth = cell * 0.5;
+    rrect(ox - cell * 0.25, oy - cell * 0.25, W * cell + cell * 0.5, H * cell + cell * 0.5, mapR + cell * 0.25);
+    ctx.stroke();
+    ctx.save();
+    ctx.translate(ox, oy);
+    ctx.fillStyle = bgPatternFor(cell);
+    rrect(0, 0, W * cell, H * cell, mapR);
+    ctx.fill();
+    ctx.restore();
+    const mapClip = new Path2D();
+    mapClip.roundRect ? mapClip.roundRect(ox, oy, W * cell, H * cell, mapR) : mapClip.rect(ox, oy, W * cell, H * cell);
 
     const x0 = Math.max(0, Math.floor(-ox / cell) - 1), x1 = Math.min(W - 1, Math.ceil((cw - ox) / cell) + 1);
     const y0 = Math.max(0, Math.floor(-oy / cell) - 1), y1 = Math.min(H - 1, Math.ceil((ch - oy) / cell) + 1);
 
-    // Schachbrett-Muster
-    ctx.fillStyle = '#e8ecf2';
-    ctx.beginPath();
-    for (let y = y0; y <= y1; y++)
-      for (let x = x0 + ((x0 + y) & 1); x <= x1; x += 2) ctx.rect(ox + x * cell, oy + y * cell, cell, cell);
-    ctx.fill();
-
-    // Gebiete mit leichtem 3D-Rand
-    const depth = Math.max(2, Math.round(cell * 0.2));
-    for (let y = y0; y <= y1; y++) {
-      const row = y * W;
-      for (let pass = 0; pass < 2; pass++) {
-        const dy = pass === 0 ? depth : 0;
-        let x = x0;
-        while (x <= x1) {
-          const o = owner[row + x];
-          if (!o || !players[o]) { x++; continue; }
-          let e = x;
-          while (e + 1 <= x1 && owner[row + e + 1] === o) e++;
-          if (rbFlag[o]) {
-            const pal = pass === 0 ? RB_DARK : RB_TOP;
-            for (let xx = x; xx <= e; xx++) {
-              ctx.fillStyle = pal[rbIndex(xx, y, rt)];
-              ctx.fillRect(ox + xx * cell, oy + y * cell + dy, cell + 1, cell);
-            }
-          } else {
-            const col = colorOf(players[o]);
-            ctx.fillStyle = pass === 0 ? col.dark : col.base;
-            ctx.fillRect(ox + x * cell, oy + y * cell + dy, (e - x + 1) * cell, cell);
-          }
-          x = e + 1;
-        }
+    // Welche Spieler haben Gebiet bzw. Spur im sichtbaren Ausschnitt?
+    const xa = x0 - 2, ya = y0 - 2, ww = x1 - x0 + 5, wh = y1 - y0 + 5;
+    const ownIds = new Set(), trailIds = new Set();
+    for (let y = Math.max(0, ya); y <= Math.min(H - 1, ya + wh - 1); y++)
+      for (let x = Math.max(0, xa); x <= Math.min(W - 1, xa + ww - 1); x++) {
+        const i = y * W + x;
+        if (owner[i] && players[owner[i]]) ownIds.add(owner[i]);
+        if (trailMap[i] && players[trailMap[i]]) trailIds.add(trailMap[i]);
       }
-    }
 
-    // Spuren
-    for (let y = y0; y <= y1; y++) {
-      const row = y * W;
-      let x = x0;
-      while (x <= x1) {
-        const t = trailMap[row + x];
-        if (!t || !players[t]) { x++; continue; }
-        let e = x;
-        while (e + 1 <= x1 && trailMap[row + e + 1] === t) e++;
-        if (rbFlag[t]) {
-          for (let xx = x; xx <= e; xx++) {
-            ctx.fillStyle = RB_TRAIL[rbIndex(xx, y, rt)];
-            ctx.fillRect(ox + xx * cell, oy + y * cell, cell, cell);
-          }
-        } else {
-          ctx.fillStyle = colorOf(players[t]).trail;
-          ctx.fillRect(ox + x * cell, oy + y * cell, (e - x + 1) * cell, cell);
-        }
-        x = e + 1;
-      }
+    // Gebiete: weiche Formen, je Spieler ein Pfad
+    let rbTop = null, rbDark = null, rbTrail = null;
+    if (anyRb) {
+      rbTop = rainbowGradient(ox, oy, cell, rt, 64, 1);
+      rbDark = rainbowGradient(ox, oy, cell, rt, 44, 1);
+      rbTrail = rainbowGradient(ox, oy, cell, rt, 74, 0.7);
     }
+    const groups = [];
+    for (const o of ownIds) {
+      const col = colorOf(players[o]);
+      const g = { path: new Path2D(), top: rbFlag[o] ? rbTop : col.base, dark: rbFlag[o] ? rbDark : col.dark };
+      traceInto(g.path, smoothField(owner, o, xa, ya, ww, wh), ww, wh, xa, ya, 0.4, cell, ox, oy);
+      groups.push(g);
+    }
+    const depth = Math.max(2, Math.round(cell * 0.16));
+    ctx.save();
+    ctx.clip(mapClip);
+    ctx.save();
+    ctx.translate(0, depth);
+    for (const g of groups) { ctx.fillStyle = g.dark; ctx.fill(g.path, 'evenodd'); }
+    ctx.restore();
+    for (const g of groups) { ctx.fillStyle = g.top; ctx.fill(g.path, 'evenodd'); }
+
+    // Spuren als weiche Schläuche
+    for (const t of trailIds) {
+      const path = new Path2D();
+      traceInto(path, smoothField(trailMap, t, xa, ya, ww, wh), ww, wh, xa, ya, 0.5, cell, ox, oy);
+      ctx.fillStyle = rbFlag[t] ? rbTrail : colorOf(players[t]).trail;
+      ctx.fill(path, 'evenodd');
+    }
+    ctx.restore();
 
     // Glitzer auf Einhorn-Gebieten
     if (anyRb) {
@@ -665,36 +785,15 @@
       ctx.globalAlpha = 1;
     }
 
-    // Spielfeldrand
-    ctx.strokeStyle = 'rgba(239,68,68,.6)';
-    ctx.lineWidth = Math.max(2, cell * 0.12);
-    ctx.strokeRect(ox, oy, W * cell, H * cell);
-
     // Spieler
-    const size = cell * 1.05;
+    const hr = cell * 0.56;
+    const size = hr * 2;
     for (const p of players) {
       if (!p || !p.alive) continue;
       const sx = ox + p.rx * cell, sy = oy + p.ry * cell;
       if (sx < -cell * 4 || sy < -cell * 4 || sx > cw + cell * 4 || sy > ch + cell * 4) continue;
-      const hx = sx - size / 2, hy = sy - size / 2, r = size * 0.22;
       const rb = rbFlag[p.id] === 1;
       const col = colorOf(p);
-      if (rb) {
-        const k = rbIndex(Math.floor(p.rx), Math.floor(p.ry), rt);
-        ctx.fillStyle = RB_DARK[k];
-        rrect(hx, hy + depth, size, size, r); ctx.fill();
-        const g = ctx.createLinearGradient(hx, hy, hx + size, hy + size);
-        for (let s = 0; s <= 4; s++) g.addColorStop(s / 4, RB_TOP[(k + s * 8) % HUES]);
-        ctx.fillStyle = g;
-      } else {
-        ctx.fillStyle = col.dark;
-        rrect(hx, hy + depth, size, size, r); ctx.fill();
-        ctx.fillStyle = col.base;
-      }
-      rrect(hx, hy, size, size, r); ctx.fill();
-      ctx.strokeStyle = 'rgba(255,255,255,.85)';
-      ctx.lineWidth = Math.max(1.5, cell * 0.07);
-      ctx.stroke();
 
       // Unsterblich: pulsierender Leuchtring
       if (p.invincible) {
@@ -705,41 +804,63 @@
         ctx.strokeStyle = `rgba(253, 230, 138, ${0.6 + 0.4 * pulse})`;
         ctx.lineWidth = Math.max(2, cell * 0.12);
         ctx.beginPath();
-        ctx.arc(sx, sy + depth / 2, size * (0.82 + 0.1 * pulse), 0, Math.PI * 2);
+        ctx.arc(sx, sy + depth / 2, hr * (1.45 + 0.15 * pulse), 0, Math.PI * 2);
         ctx.stroke();
         ctx.restore();
       }
 
+      // Körper: runde Kugel mit Unterkante, weißem Rand und Glanzlicht
+      let fill;
+      if (rb) {
+        const k = rbIndex(Math.floor(p.rx), Math.floor(p.ry), rt);
+        ctx.fillStyle = RB_DARK[k];
+        const g = ctx.createLinearGradient(sx - hr, sy - hr, sx + hr, sy + hr);
+        for (let s = 0; s <= 4; s++) g.addColorStop(s / 4, RB_TOP[(k + s * 8) % HUES]);
+        fill = g;
+      } else {
+        ctx.fillStyle = col.dark;
+        fill = col.base;
+      }
+      ctx.beginPath(); ctx.arc(sx, sy + depth, hr, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = fill;
+      ctx.beginPath(); ctx.arc(sx, sy, hr, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = Math.max(1.5, cell * 0.09);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,.28)';
+      ctx.beginPath(); ctx.ellipse(sx - hr * 0.3, sy - hr * 0.38, hr * 0.42, hr * 0.24, -0.5, 0, Math.PI * 2); ctx.fill();
+
       // Augen
       const c = Math.cos(p.ra), s = Math.sin(p.ra);
       const ex = c * size * 0.15, ey = s * size * 0.15;
-      const px = -s * size * 0.2, py = c * size * 0.2;
+      const px = -s * size * 0.19, py = c * size * 0.19;
       for (const sign of [-1, 1]) {
         const cx2 = sx + ex + px * sign, cy2 = sy + ey + py * sign;
         ctx.fillStyle = '#fff';
-        ctx.beginPath(); ctx.arc(cx2, cy2, size * 0.15, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(cx2, cy2, size * 0.14, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = '#1f2430';
-        ctx.beginPath(); ctx.arc(cx2 + c * size * 0.06, cy2 + s * size * 0.06, size * 0.075, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(cx2 + c * size * 0.055, cy2 + s * size * 0.055, size * 0.075, 0, Math.PI * 2); ctx.fill();
       }
 
       // Einhorn-Horn
-      let nameY = hy - cell * 0.15;
+      let nameY = sy - hr - cell * 0.2;
       if (rb) {
-        const bx = sx, by = hy + size * 0.08, tipX = bx + size * 0.05, tipY = by - size * 0.62;
+        const bx = sx, by = sy - hr * 0.75, tipX = bx + size * 0.05, tipY = by - size * 0.6;
         ctx.beginPath();
-        ctx.moveTo(bx - size * 0.16, by);
-        ctx.lineTo(bx + size * 0.16, by);
+        ctx.moveTo(bx - size * 0.15, by);
+        ctx.quadraticCurveTo(bx, by + size * 0.06, bx + size * 0.15, by);
         ctx.lineTo(tipX, tipY);
         ctx.closePath();
         ctx.fillStyle = '#fcd34d';
         ctx.fill();
-        ctx.strokeStyle = '#b45309';
+        ctx.strokeStyle = '#d97706';
         ctx.lineWidth = Math.max(1, cell * 0.04);
+        ctx.lineJoin = 'round';
         ctx.stroke();
         ctx.beginPath();
         for (const f of [0.3, 0.6]) {
-          const lx = bx - size * 0.16 + (tipX - (bx - size * 0.16)) * f, ly = by + (tipY - by) * f;
-          const rx = bx + size * 0.16 + (tipX - (bx + size * 0.16)) * f;
+          const lx = bx - size * 0.15 + (tipX - (bx - size * 0.15)) * f, ly = by + (tipY - by) * f;
+          const rx = bx + size * 0.15 + (tipX - (bx + size * 0.15)) * f;
           ctx.moveTo(lx, ly + size * 0.03);
           ctx.lineTo(rx, ly - size * 0.03);
         }
@@ -748,36 +869,41 @@
         ctx.globalAlpha = 0.5 + 0.5 * Math.sin(rt * 6);
         sparkle(tipX, tipY - size * 0.04, size * 0.16);
         ctx.globalAlpha = 1;
-        nameY = tipY - size * 0.1;
+        nameY = tipY - cell * 0.15;
       }
 
-      // Name
-      ctx.font = `700 ${Math.round(cell * 0.5)}px system-ui, sans-serif`;
+      // Namensschild
+      const fs = Math.max(10, Math.round(cell * 0.42));
+      ctx.font = `800 ${fs}px ${FONT}`;
       ctx.textAlign = 'center';
-      ctx.textBaseline = 'bottom';
-      ctx.lineWidth = Math.max(2, cell * 0.12);
-      ctx.strokeStyle = 'rgba(20,24,34,.75)';
-      ctx.strokeText(p.name, sx, nameY);
+      ctx.textBaseline = 'middle';
+      const tw = ctx.measureText(p.name).width;
+      const ph = fs * 1.45, pw = tw + fs * 1.1;
+      ctx.fillStyle = p.id === myId ? 'rgba(15,18,28,.78)' : 'rgba(15,18,28,.55)';
+      rrect(sx - pw / 2, nameY - ph, pw, ph, ph / 2);
+      ctx.fill();
       ctx.fillStyle = '#fff';
-      ctx.fillText(p.name, sx, nameY);
+      ctx.fillText(p.name, sx, nameY - ph / 2 + fs * 0.05);
     }
 
     // Partikel
     for (const q of particles) {
       ctx.globalAlpha = Math.max(0, Math.min(1, q.life * 1.5));
       ctx.fillStyle = q.color;
-      const s2 = q.size * cell;
-      ctx.fillRect(ox + q.x * cell - s2 / 2, oy + q.y * cell - s2 / 2, s2, s2);
+      ctx.beginPath();
+      ctx.arc(ox + q.x * cell, oy + q.y * cell, (q.size * cell) / 2, 0, Math.PI * 2);
+      ctx.fill();
     }
     ctx.globalAlpha = 1;
 
     // Eroberungs-Anzeige
     for (const f of floaters) {
       ctx.globalAlpha = Math.min(1, f.life * 2);
-      ctx.font = `900 ${Math.round(cell * 0.75)}px system-ui, sans-serif`;
+      ctx.font = `900 ${Math.round(cell * 0.75)}px ${FONT}`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.lineWidth = cell * 0.15;
+      ctx.lineWidth = cell * 0.18;
+      ctx.lineJoin = 'round';
       ctx.strokeStyle = '#fff';
       ctx.strokeText(f.text, ox + f.x * cell, oy + f.y * cell);
       ctx.fillStyle = f.color;
@@ -800,7 +926,7 @@
     }
     moctx.putImageData(miniImg, 0, 0);
     const mw = mini.width, mh = mini.height;
-    mctx.imageSmoothingEnabled = false;
+    mctx.imageSmoothingEnabled = true;
     mctx.clearRect(0, 0, mw, mh);
     mctx.drawImage(miniOff, 0, 0, mw, mh);
     const cell = cellNow();
