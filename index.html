@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Farbrevier</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div id="hud" class="hidden">
+    <div id="stats">
+      <div class="big" id="pct">0.00%</div>
+      <div id="sub">Kills: 0 · 0:00</div>
+    </div>
+  </div>
+  <div id="leaderboard"></div>
+  <canvas id="minimap" width="160" height="160"></canvas>
+  <div id="feed"></div>
+
+  <div id="menu" class="overlay">
+    <div class="panel">
+      <h1>Farb<span>revier</span></h1>
+      <p class="tag">Erobere Gebiet, schneide Gegner ab – aber pass auf deine eigene Spur auf!</p>
+      <input id="nameInput" maxlength="14" placeholder="Dein Name" autocomplete="off">
+      <div id="swatches"></div>
+      <button id="playBtn">Spielen</button>
+      <div class="help">
+        <div><b>Steuern:</b> Maus, Pfeiltasten / WASD oder Finger auf dem Handy</div>
+        <div><b>Erobern:</b> Verlasse dein Gebiet und kehre zurück – alles Umschlossene gehört dir</div>
+        <div><b>Angreifen:</b> Fahr über die Spur eines Gegners, um ihn auszuschalten</div>
+        <div><b>Pause:</b> P oder Esc</div>
+      </div>
+      <div id="record"></div>
+    </div>
+  </div>
+
+  <div id="over" class="overlay hidden">
+    <div class="panel">
+      <h2 id="overTitle">Erwischt!</h2>
+      <p id="overReason"></p>
+      <div class="results">
+        <div><span id="resPct">0%</span><small>Max. Gebiet</small></div>
+        <div><span id="resKills">0</span><small>Kills</small></div>
+        <div><span id="resTime">0:00</span><small>Überlebt</small></div>
+      </div>
+      <div id="overRecord"></div>
+      <button id="againBtn">Nochmal spielen</button>
+      <button id="menuBtn" class="secondary">Zum Menü</button>
+    </div>
+  </div>
+
+  <div id="pause" class="overlay hidden">
+    <div class="panel small">
+      <h2>Pause</h2>
+      <p>Drücke P oder Esc zum Weiterspielen</p>
+    </div>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>
