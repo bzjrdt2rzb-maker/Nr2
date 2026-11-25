@@ -148,6 +148,9 @@
     } else if (ev.k === 'boost') {
       const mine = myId && ev.id === myId;
       if (session.kind !== 'solo' || mine) addFeed(ev.on ? `${mine ? 'Du gibst' : ev.n + ' gibt'} Vollgas!` : `${mine ? 'Du fährst' : ev.n + ' fährt'} wieder normal`, mine);
+    } else if (ev.k === 'spikes') {
+      const mine = myId && ev.id === myId;
+      if (session.kind !== 'solo' || mine) addFeed(ev.on ? `${mine ? 'Deine' : ev.n + 's'} Stacheln sind ausgefahren!` : `${mine ? 'Deine' : ev.n + 's'} Stacheln sind eingezogen`, mine);
     } else if (ev.k === 'join') {
       if (!creatingSelf && ev.id !== myId && session.kind !== 'solo') addFeed(`${ev.n} ist beigetreten`, true);
     }
@@ -1237,14 +1240,13 @@
       if (statsEl.dataset.bg !== bgc) { statsEl.dataset.bg = bgc; statsEl.style.background = bgc; }
     }
     // Spezialkraft-Knopf für Geheimnamen
-    // (Kaktus braucht keinen Knopf – seine Stacheln sind immer aktiv)
-    let kind = ui === 'play' && p && p.alive ? FE.specialOf(p.name) : null;
-    if (kind === 'kaktus') kind = null;
+    const kind = ui === 'play' && p && p.alive ? FE.specialOf(p.name) : null;
     if (powerBtn.hidden === !!kind) powerBtn.hidden = !kind;
     if (kind) {
       let label, on = false;
       if (kind === 'einhorn') { on = !!p.invincible; label = `🦄 Unsterblich: ${on ? 'AN' : 'AUS'}`; }
-      else { on = !!p.boost; label = `⚡ Turbo 5×: ${on ? 'AN' : 'AUS'}`; }
+      else if (kind === 'mcqueen') { on = !!p.boost; label = `⚡ Turbo 5×: ${on ? 'AN' : 'AUS'}`; }
+      else { on = !!p.spikes; label = `🌵 Stacheln: ${on ? 'AN' : 'AUS'}`; }
       if (powerBtn.textContent !== label) powerBtn.textContent = label;
       if (powerBtn.dataset.kind !== kind) powerBtn.dataset.kind = kind;
       powerBtn.classList.toggle('on', on);
@@ -1400,6 +1402,8 @@
       if (isRemote()) send({ t: 'god', on: !p.invincible }); else localEngine.setInvincible(localHuman, !localHuman.invincible);
     } else if (kind === 'mcqueen') {
       if (isRemote()) send({ t: 'boost', on: !p.boost }); else localEngine.setBoost(localHuman, !localHuman.boost);
+    } else if (kind === 'kaktus') {
+      if (isRemote()) send({ t: 'spikes', on: !p.spikes }); else localEngine.setSpikes(localHuman, !localHuman.spikes);
     }
   }
   powerBtn.addEventListener('click', e => { e.stopPropagation(); usePower(); powerBtn.blur(); });
