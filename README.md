@@ -17,6 +17,11 @@ In allen Modi füllen Bots die Welt auf, damit immer etwas los ist. Kommen mehr 
 Heißt ein Spieler **Einhorn**, wird sein Gebiet zum glitzernden Regenbogen, und seine Figur bekommt ein Horn.
 Das gilt in allen Modi und ist für alle Mitspieler sichtbar.
 
+Als Einhorn erscheint während des Spiels zusätzlich der Knopf **„Unsterblich“** (oder Taste **U**). Solange er an ist,
+kann dich nichts ausschalten: weder fremde noch die eigene Spur, kein Zusammenstoß. Wird dein ganzes Gebiet erobert,
+bekommst du an deiner Position ein neues Startgebiet. Ein goldener Leuchtring zeigt allen, dass du gerade unsterblich bist.
+Nochmal drücken schaltet es wieder aus.
+
 ## Regeln
 
 - Du startest mit einem kleinen Gebiet in deiner Farbe.
@@ -35,6 +40,7 @@ Das gilt in allen Modi und ist für alle Mitspieler sichtbar.
 | Pfeiltasten / WASD | Richtung wechseln |
 | Touch | Finger auf den Bildschirm – die Figur fährt in diese Richtung |
 | P / Esc | Pause (nur allein) |
+| U | Unsterblich an/aus (nur als Einhorn) |
 
 ## Online stellen
 

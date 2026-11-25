@@ -133,6 +133,11 @@
           color: p && isRb(p) ? '#d946ef' : (p ? colorOf(p).dark : '#1f2430'),
         });
       }
+    } else if (ev.k === 'god') {
+      const mine = myId && ev.id === myId;
+      if (session.kind !== 'solo' || mine) {
+        addFeed(ev.on ? `${mine ? 'Du bist' : ev.n + ' ist'} jetzt unsterblich` : `${mine ? 'Du bist' : ev.n + ' ist'} wieder verwundbar`, mine);
+      }
     } else if (ev.k === 'join') {
       if (!creatingSelf && ev.id !== myId && session.kind !== 'solo') addFeed(`${ev.n} ist beigetreten`, true);
     }
@@ -173,7 +178,7 @@
 
   function applyPlayers(arr) {
     const now = performance.now();
-    for (const [id, x, y, a, alive, count, kills, st] of arr) {
+    for (const [id, x, y, a, alive, count, kills, st, inv] of arr) {
       const p = remotePlayer(id);
       p.sx = x / 100; p.sy = y / 100; p.sa = a / 1000;
       const was = p.alive;
@@ -186,6 +191,7 @@
       p.count = count;
       p.kills = kills;
       p.spawnTime = st / 10;
+      p.invincible = !!inv;
     }
   }
 
@@ -658,13 +664,13 @@
     const size = cell * 1.05;
     for (const p of players) {
       if (!p || !p.alive) continue;
-      const sx = ox + p.x * cell, sy = oy + p.y * cell;
+      const sx = ox + p.rx * cell, sy = oy + p.ry * cell;
       if (sx < -cell * 4 || sy < -cell * 4 || sx > cw + cell * 4 || sy > ch + cell * 4) continue;
       const hx = sx - size / 2, hy = sy - size / 2, r = size * 0.22;
       const rb = rbFlag[p.id] === 1;
       const col = colorOf(p);
       if (rb) {
-        const k = rbIndex(Math.floor(p.x), Math.floor(p.y), rt);
+        const k = rbIndex(Math.floor(p.rx), Math.floor(p.ry), rt);
         ctx.fillStyle = RB_DARK[k];
         rrect(hx, hy + depth, size, size, r); ctx.fill();
         const g = ctx.createLinearGradient(hx, hy, hx + size, hy + size);
@@ -680,8 +686,22 @@
       ctx.lineWidth = Math.max(1.5, cell * 0.07);
       ctx.stroke();
 
+      // Unsterblich: pulsierender Leuchtring
+      if (p.invincible) {
+        const pulse = 0.5 + 0.5 * Math.sin(rt * 8);
+        ctx.save();
+        ctx.shadowColor = '#fde68a';
+        ctx.shadowBlur = cell * (0.4 + 0.4 * pulse);
+        ctx.strokeStyle = `rgba(253, 230, 138, ${0.6 + 0.4 * pulse})`;
+        ctx.lineWidth = Math.max(2, cell * 0.12);
+        ctx.beginPath();
+        ctx.arc(sx, sy + depth / 2, size * (0.82 + 0.1 * pulse), 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+
       // Augen
-      const c = Math.cos(p.angle), s = Math.sin(p.angle);
+      const c = Math.cos(p.ra), s = Math.sin(p.ra);
       const ex = c * size * 0.15, ey = s * size * 0.15;
       const px = -s * size * 0.2, py = c * size * 0.2;
       for (const sign of [-1, 1]) {
@@ -780,9 +800,9 @@
     const p = me();
     if (p && p.alive) {
       mctx.fillStyle = '#1f2430';
-      mctx.beginPath(); mctx.arc(p.x * mw / W, p.y * mh / H, 4, 0, Math.PI * 2); mctx.fill();
+      mctx.beginPath(); mctx.arc(p.rx * mw / W, p.ry * mh / H, 4, 0, Math.PI * 2); mctx.fill();
       mctx.fillStyle = '#fff';
-      mctx.beginPath(); mctx.arc(p.x * mw / W, p.y * mh / H, 2, 0, Math.PI * 2); mctx.fill();
+      mctx.beginPath(); mctx.arc(p.rx * mw / W, p.ry * mh / H, 2, 0, Math.PI * 2); mctx.fill();
     }
   }
 
@@ -806,8 +826,20 @@
     lbEl.innerHTML = html;
   }
 
+  const godBtn = $('godBtn');
   function updateHud() {
     const p = me();
+    const showGod = ui === 'play' && !!p && p.alive && isRb(p);
+    if (godBtn.hidden === showGod) godBtn.hidden = !showGod;
+    if (showGod) {
+      const on = !!p.invincible;
+      if (godBtn.dataset.on !== String(on)) {
+        godBtn.dataset.on = String(on);
+        godBtn.classList.toggle('on', on);
+        godBtn.setAttribute('aria-pressed', String(on));
+        $('godState').textContent = on ? 'AN' : 'AUS';
+      }
+    }
     if (ui === 'play' && p && p.alive) {
       const pct = (p.count / N) * 100;
       myBest = Math.max(myBest, pct);
@@ -926,6 +958,15 @@
   $('codeInput').addEventListener('keydown', e => { if (e.key === 'Enter') joinRoom(); e.stopPropagation(); });
   $('codeInput').addEventListener('input', e => { e.target.value = e.target.value.toUpperCase(); });
 
+  function toggleGod() {
+    const p = me();
+    if (ui !== 'play' || !p || !p.alive || !isRb(p)) return;
+    if (isRemote()) { if (session.link) session.link.send({ t: 'god', on: !p.invincible }); }
+    else localEngine.setInvincible(localHuman, !localHuman.invincible);
+  }
+  godBtn.addEventListener('click', e => { e.stopPropagation(); toggleGod(); godBtn.blur(); });
+  godBtn.addEventListener('touchstart', e => e.stopPropagation(), { passive: true });
+
   // ---------- Eingabe ----------
   function setMyTarget(a) {
     myTarget = a;
@@ -934,12 +975,12 @@
   function aimAt(clientX, clientY) {
     const p = me();
     if (ui !== 'play' || paused || !p || !p.alive) return;
-    const hx = (viewOx + p.x * cellPx) / dpr, hy = (viewOy + p.y * cellPx) / dpr;
+    const hx = (viewOx + p.rx * cellPx) / dpr, hy = (viewOy + p.ry * cellPx) / dpr;
     const dx = clientX - hx, dy = clientY - hy;
     if (dx * dx + dy * dy < 16) return;
     setMyTarget(Math.atan2(dy, dx));
   }
-  window.addEventListener('mousemove', e => aimAt(e.clientX, e.clientY));
+  window.addEventListener('mousemove', e => { if (e.target !== godBtn && !godBtn.contains(e.target)) aimAt(e.clientX, e.clientY); });
   const onTouch = e => {
     if (ui !== 'play') return;
     e.preventDefault();
@@ -957,6 +998,7 @@
   };
   window.addEventListener('keydown', e => {
     if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') { togglePause(); return; }
+    if (e.key === 'u' || e.key === 'U') { toggleGod(); return; }
     if (e.key in KEY_DIRS) {
       e.preventDefault();
       const p = me();
@@ -1000,14 +1042,25 @@
       if (!paused) {
         acc += dt;
         while (acc >= FE.STEP) {
+          for (const q of localEngine.players) if (q) { q.px = q.x; q.py = q.y; q.pa = q.angle; }
           localEngine.step();
           if (session.kind === 'host') session.hub.afterStep();
           acc -= FE.STEP;
         }
       }
+      // Zwischen zwei Simulationsschritten interpolieren → flüssig auch auf 90/120-Hz-Bildschirmen
+      const alpha = paused ? 1 : Math.min(1, acc / FE.STEP);
+      for (const q of localEngine.players) {
+        if (!q) continue;
+        if (q.px === undefined || Math.abs(q.x - q.px) + Math.abs(q.y - q.py) > 2) { q.rx = q.x; q.ry = q.y; q.ra = q.angle; continue; }
+        q.rx = q.px + (q.x - q.px) * alpha;
+        q.ry = q.py + (q.y - q.py) * alpha;
+        q.ra = q.pa + FE.wrapAngle(q.angle - q.pa) * alpha;
+      }
     } else {
       acc = 0;
       updateRemoteDisplay(dt);
+      for (const q of remote.players) if (q) { q.rx = q.x; q.ry = q.y; q.ra = q.angle; }
     }
 
     if (!paused) {
@@ -1029,15 +1082,15 @@
     // Kamera
     let tx = cam.x, ty = cam.y;
     const p = me();
-    if (ui === 'play' && p && p.alive) { tx = p.x; ty = p.y; }
+    if (ui === 'play' && p && p.alive) { tx = p.rx; ty = p.ry; }
     else if (ui === 'dead' && deathCam) { tx = deathCam.x; ty = deathCam.y; }
     else if (ui === 'menu') {
       let leader = null;
       for (const q of world.players) if (q && q.alive && q.isBot && (!leader || q.count > leader.count)) leader = q;
-      if (leader) { tx = leader.x; ty = leader.y; }
+      if (leader) { tx = leader.rx; ty = leader.ry; }
     }
     if (snapCam && ui === 'play' && p && p.alive) { cam.x = tx; cam.y = ty; snapCam = false; }
-    const f = Math.min(1, dt * (ui === 'play' ? 12 : 2));
+    const f = Math.min(1, dt * (ui === 'play' ? 14 : 2));
     cam.x += (tx - cam.x) * f;
     cam.y += (ty - cam.y) * f;
 

@@ -13,13 +13,13 @@
   'use strict';
 
   const W = 110, H = 110, N = W * H;
-  const SPEED = 7.0;          // Zellen pro Sekunde
-  const TURN = 5.5;           // max. Drehgeschwindigkeit (rad/s)
+  const SPEED = 9.5;          // Zellen pro Sekunde
+  const TURN = 7.5;           // max. Drehgeschwindigkeit (rad/s) – Wenderadius bleibt gleich
   const STEP = 1 / 60;        // feste Simulationsschrittweite
   const START_R = 2.7;        // Radius des Startgebiets
   const COLOR_COUNT = 13;
   const MAX_ID = 250;
-  const NET_EVERY = 3;        // alle 3 Schritte (20x pro Sekunde) Netzwerk-Update
+  const NET_EVERY = 2;        // alle 2 Schritte (30x pro Sekunde) Netzwerk-Update
 
   const BOT_NAMES = ['Blitz', 'Kringel', 'Pixelfuchs', 'Zickzack', 'Quadrat', 'Rakete', 'Kurve',
     'Nebel', 'Kobold', 'Schnecke', 'Turbo', 'Glitzer', 'Wirbel', 'Funke', 'Brummer', 'Klecks',
@@ -112,7 +112,7 @@
         id, isBot, name: '', color: 0, alive: false,
         x: 0, y: 0, cx: 0, cy: 0, angle: 0, target: 0,
         trail: [], count: 0, bx0: W, by0: H, bx1: -1, by1: -1,
-        kills: 0, bestPct: 0, spawnTime: 0, respawnAt: 0,
+        kills: 0, bestPct: 0, spawnTime: 0, respawnAt: 0, invincible: false,
         ai: { mode: 'home', plan: null, home: null, homeTimer: 0, tick: 0, aggr: Math.random(), hunt: -1, huntUntil: 0 },
       };
     }
@@ -192,12 +192,26 @@
 
     function checkWipeouts(by) {
       for (const q of players) {
-        if (q && q.alive && q !== by && q.count <= 0) kill(q, by, 'wiped');
+        if (!q || !q.alive || q.count > 0) continue;
+        if (q.invincible) rehome(q);
+        else if (q !== by) kill(q, by, 'wiped');
       }
+    }
+
+    // Ein unsterblicher Spieler, dessen Gebiet komplett erobert wurde, bekommt
+    // an seiner aktuellen Position ein neues Startgebiet.
+    function rehome(p) {
+      const cx = Math.min(W - 4, Math.max(3, p.cx)), cy = Math.min(H - 4, Math.max(3, p.cy));
+      const r = Math.ceil(START_R);
+      for (let dy = -r; dy <= r; dy++)
+        for (let dx = -r; dx <= r; dx++)
+          if (dx * dx + dy * dy <= START_R * START_R) setOwner((cy + dy) * W + cx + dx, p.id);
+      checkWipeouts(p);
     }
 
     function kill(p, killer, reason) {
       if (!p.alive) return;
+      if (p.invincible && reason !== 'leave') return;
       p.alive = false;
       for (const i of p.trail) if (trailMap[i] === p.id) setTrail(i, 0);
       p.trail = [];
@@ -374,7 +388,7 @@
       for (let y = Math.max(0, p.cy - r); y <= Math.min(H - 1, p.cy + r); y++)
         for (let x = Math.max(0, p.cx - r); x <= Math.min(W - 1, p.cx + r); x++) {
           const t = trailMap[y * W + x];
-          if (!t || t === p.id) continue;
+          if (!t || t === p.id || (players[t] && players[t].invincible)) continue;
           const d = (x - p.cx) ** 2 + (y - p.cy) ** 2;
           if (d < bd) { bd = d; best = y * W + x; }
         }
@@ -559,6 +573,7 @@
       if (!p || p.alive || players[p.id] !== p) return;
       if (name !== undefined) p.name = cleanName(name, p.name || 'Spieler');
       if (color !== undefined) p.color = cleanColor(color);
+      if (!isRainbowName(p.name)) p.invincible = false;
       // Bots mit derselben Farbe bekommen eine andere
       for (const q of players) if (q && q.isBot && q.color === p.color) giveBotIdentity(q);
       spawn(p);
@@ -570,6 +585,16 @@
       if (p.alive) kill(p, null, 'leave');
       players[p.id] = null;
       eng.metaVersion++;
+    };
+
+    /** Unsterblichkeit an/aus – nur für Spieler namens "Einhorn". */
+    eng.setInvincible = function (p, on) {
+      if (!p || p.isBot || players[p.id] !== p || !isRainbowName(p.name)) return false;
+      on = !!on;
+      if (p.invincible === on) return true;
+      p.invincible = on;
+      emit({ k: 'god', id: p.id, on: on ? 1 : 0, n: p.name });
+      return true;
     };
 
     eng.setTarget = function (p, angle) {
@@ -595,7 +620,7 @@
       for (const p of players) {
         if (!p) continue;
         out.push([p.id, Math.round(p.x * 100), Math.round(p.y * 100), Math.round(p.angle * 1000),
-          p.alive ? 1 : 0, p.count, p.kills, Math.round(p.spawnTime * 10)]);
+          p.alive ? 1 : 0, p.count, p.kills, Math.round(p.spawnTime * 10), p.invincible ? 1 : 0]);
       }
       return out;
     }
@@ -667,6 +692,8 @@
           engine.spawnPlayer(c.player, msg.name, msg.color);
         } else if (msg.t === 'dir' && c.player && c.player.alive) {
           engine.setTarget(c.player, Number(msg.a));
+        } else if (msg.t === 'god' && c.player) {
+          engine.setInvincible(c.player, !!msg.on);
         }
       },
       // Nach jedem Simulationsschritt aufrufen; schickt 20x pro Sekunde ein Update.
