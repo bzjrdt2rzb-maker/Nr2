@@ -1,6 +1,6 @@
 'use strict';
 /*
- * Farbrevier – Online-Server.
+ * Papierfresser – Online-Server.
  * Liefert das Spiel aus (statische Dateien) und betreibt eine gemeinsame
  * Spielwelt, mit der sich alle Browser per WebSocket unter /ws verbinden.
  *
@@ -99,5 +99,5 @@ setInterval(() => {
 }, 15000);
 
 server.listen(PORT, () => {
-  console.log(`Farbrevier-Server läuft auf http://localhost:${PORT}`);
+  console.log(`Papierfresser-Server läuft auf http://localhost:${PORT}`);
 });

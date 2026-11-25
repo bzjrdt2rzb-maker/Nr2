@@ -1,11 +1,11 @@
 {
-  "name": "Farbrevier",
-  "short_name": "Farbrevier",
+  "name": "Papierfresser",
+  "short_name": "Papierfresser",
   "start_url": "./",
   "display": "fullscreen",
   "orientation": "any",
-  "background_color": "#171b27",
-  "theme_color": "#171b27",
+  "background_color": "#7c3aed",
+  "theme_color": "#7c3aed",
   "icons": [
     { "src": "icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
   ]

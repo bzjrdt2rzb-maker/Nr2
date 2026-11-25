@@ -1,5 +1,5 @@
 /*
- * Farbrevier – Spiel-Engine (Simulation ohne Darstellung).
+ * Papierfresser – Spiel-Engine (Simulation ohne Darstellung).
  * Läuft im Browser (allein spielen, Raum-Gastgeber) und in Node.js (Online-Server).
  *
  * Die Karte ist ein Raster. Jede Zelle hat einen Besitzer (owner) und kann

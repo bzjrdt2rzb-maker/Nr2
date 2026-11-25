@@ -1,4 +1,4 @@
-# Farbrevier
+# Papierfresser
 
 Ein Browser-Spiel, in dem du Gebiet eroberst – allein gegen Bots oder mit Freunden auf verschiedenen Geräten.
 
@@ -74,14 +74,14 @@ funktionieren alle drei Modi.
 
 1. Konto auf [render.com](https://render.com) anlegen und mit GitHub verbinden.
 2. **New → Blueprint** wählen und dieses Repo auswählen. Render liest `render.yaml` und richtet alles ein (kostenloser Plan).
-3. Nach dem Deploy die angezeigte Adresse öffnen (z. B. `https://farbrevier.onrender.com`) – fertig.
+3. Nach dem Deploy die angezeigte Adresse öffnen (z. B. `https://papierfresser.onrender.com`) – fertig.
 
 Der kostenlose Plan schläft nach etwa 15 Minuten ohne Besucher ein. Der erste Aufruf danach dauert 30–60 Sekunden.
 
 Soll die GitHub-Pages-Version ebenfalls den Online-Server benutzen, trage dessen Adresse in `config.js` ein:
 
 ```js
-window.FARBREVIER_SERVER = 'https://farbrevier.onrender.com';
+window.FARBREVIER_SERVER = 'https://papierfresser.onrender.com';
 ```
 
 ### Lokal testen

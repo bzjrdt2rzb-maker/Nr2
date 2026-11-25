@@ -1,6 +1,6 @@
 'use strict';
 /*
- * Farbrevier – Darstellung, Eingabe, Menüs und Netzwerk im Browser.
+ * Papierfresser – Darstellung, Eingabe, Menüs und Netzwerk im Browser.
  * Modi:
  *   solo   – allein gegen Bots (Engine läuft im Browser)
  *   host   – Raum erstellen: Engine läuft hier, Freunde verbinden sich per Raumcode (PeerJS/WebRTC)
@@ -567,21 +567,25 @@
     ctx.fill();
   }
 
-  const FONT = '"Nunito", system-ui, -apple-system, "Segoe UI", sans-serif';
+  const FONT = '"Fredoka", "Nunito", system-ui, -apple-system, "Segoe UI", sans-serif';
 
   // Punktraster als Hintergrund-Muster (wird nur bei neuer Zellgröße neu erzeugt)
   let bgPattern = null, bgPatternCell = 0;
   function bgPatternFor(cell) {
     if (bgPattern && bgPatternCell === cell) return bgPattern;
+    // 2×2 Felder: helles Papier mit bunten Konfetti-Punkten
     const c = document.createElement('canvas');
-    c.width = c.height = cell;
+    c.width = c.height = cell * 2;
     const g = c.getContext('2d');
-    g.fillStyle = '#eef1f7';
-    g.fillRect(0, 0, cell, cell);
-    g.fillStyle = '#d5dbe7';
-    g.beginPath();
-    g.arc(cell / 2, cell / 2, Math.max(1, cell * 0.06), 0, Math.PI * 2);
-    g.fill();
+    g.fillStyle = '#fffaf0';
+    g.fillRect(0, 0, cell * 2, cell * 2);
+    const dots = ['#ffc8dd', '#bde0fe', '#caffbf', '#ffe5a0'];
+    for (let k = 0; k < 4; k++) {
+      g.fillStyle = dots[k];
+      g.beginPath();
+      g.arc(((k % 2) + 0.5) * cell, (((k >> 1) + 0.5)) * cell, Math.max(1.5, cell * 0.1), 0, Math.PI * 2);
+      g.fill();
+    }
     bgPattern = ctx.createPattern(c, 'repeat');
     bgPatternCell = cell;
     return bgPattern;
@@ -699,13 +703,14 @@
     for (const p of players) if (p && isRb(p)) { rbFlag[p.id] = 1; anyRb = true; }
 
     // Hintergrund außerhalb und Spielfeld mit runden Ecken
-    const bg = ctx.createLinearGradient(0, 0, 0, ch);
-    bg.addColorStop(0, '#1e2333');
-    bg.addColorStop(1, '#141824');
+    const bg = ctx.createLinearGradient(0, 0, cw, ch);
+    bg.addColorStop(0, '#7c3aed');
+    bg.addColorStop(0.5, '#ec4899');
+    bg.addColorStop(1, '#fb923c');
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, cw, ch);
     const mapR = cell * 0.8;
-    ctx.strokeStyle = 'rgba(255,255,255,.07)';
+    ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = cell * 0.5;
     rrect(ox - cell * 0.25, oy - cell * 0.25, W * cell + cell * 0.5, H * cell + cell * 0.5, mapR + cell * 0.25);
     ctx.stroke();
@@ -879,9 +884,10 @@
       ctx.textBaseline = 'middle';
       const tw = ctx.measureText(p.name).width;
       const ph = fs * 1.45, pw = tw + fs * 1.1;
-      ctx.fillStyle = p.id === myId ? 'rgba(15,18,28,.78)' : 'rgba(15,18,28,.55)';
       rrect(sx - pw / 2, nameY - ph, pw, ph, ph / 2);
+      ctx.fillStyle = rb ? '#c026d3' : col.dark;
       ctx.fill();
+      if (p.id === myId) { ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(1.5, fs * 0.16); ctx.stroke(); }
       ctx.fillStyle = '#fff';
       ctx.fillText(p.name, sx, nameY - ph / 2 + fs * 0.05);
     }
@@ -921,7 +927,7 @@
       if (t && players[t]) rgb = rbFlag[t] ? RB_TRAIL_RGB[rbIndex(i % W, (i / W) | 0, rt)] : colorOf(players[t]).trailRgb;
       else if (o && players[o]) rgb = rbFlag[o] ? RB_RGB[rbIndex(i % W, (i / W) | 0, rt)] : colorOf(players[o]).rgb;
       const k = i * 4;
-      if (rgb) { d[k] = rgb[0]; d[k + 1] = rgb[1]; d[k + 2] = rgb[2]; } else { d[k] = 243; d[k + 1] = 245; d[k + 2] = 249; }
+      if (rgb) { d[k] = rgb[0]; d[k + 1] = rgb[1]; d[k + 2] = rgb[2]; } else { d[k] = 255; d[k + 1] = 250; d[k + 2] = 240; }
       d[k + 3] = 255;
     }
     moctx.putImageData(miniImg, 0, 0);
@@ -949,9 +955,13 @@
     const showHumans = session.kind !== 'solo';
     let html = '<div class="title">Rangliste</div>';
     const rowHtml = (p, rank) => {
-      const dot = isRb(p) ? RAINBOW_CSS : colorOf(p).base;
+      const rb = isRb(p);
+      const dot = rb ? RAINBOW_CSS : colorOf(p).base;
+      const [r, g, b] = colorOf(p).rgb;
+      const a = p.id === myId ? 0.32 : 0.16;
+      const tint = rb ? `linear-gradient(90deg,rgba(255,95,109,${a}),rgba(255,230,109,${a}),rgba(79,195,247,${a}),rgba(140,124,255,${a}))` : `rgba(${r},${g},${b},${a})`;
       const tag = showHumans && !p.isBot && p.id !== myId ? '<span class="human" title="Mensch">●</span>' : '';
-      return `<div class="row${p.id === myId ? ' me' : ''}"><span>${rank}.</span>` +
+      return `<div class="row${p.id === myId ? ' me' : ''}" style="background:${tint}"><span class="rank r${rank}">${rank}</span>` +
         `<span class="dot" style="background:${dot}"></span>` +
         `<span class="name">${tag}${esc(p.name)}</span><span>${fmtPct((p.count / N) * 100)}</span></div>`;
     };
@@ -963,8 +973,13 @@
   }
 
   const godBtn = $('godBtn');
+  const statsEl = $('stats');
   function updateHud() {
     const p = me();
+    if (p) {
+      const bgc = isRb(p) ? RAINBOW_CSS : `linear-gradient(135deg, ${colorOf(p).base}, ${colorOf(p).dark})`;
+      if (statsEl.dataset.bg !== bgc) { statsEl.dataset.bg = bgc; statsEl.style.background = bgc; }
+    }
     const showGod = ui === 'play' && !!p && p.alive && isRb(p);
     if (godBtn.hidden === showGod) godBtn.hidden = !showGod;
     if (showGod) {
