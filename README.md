@@ -32,8 +32,8 @@ prüft der Server bzw. Gastgeber den Namen – wer anders heißt, kann die Kräf
 | Name | Aussehen | Knopf |
 | --- | --- | --- |
 | **Einhorn** 🦄 | Glitzerndes Regenbogen-Gebiet, Horn | **Unsterblich** an/aus |
-| **Kaktus** 🌵 | Grün mit Stacheln und Blüte | **Stacheln!** – schaltet alle Spieler im Umkreis von 6 Feldern aus, danach 3 Sekunden Abklingzeit |
-| **Lightning McQueen** ⚡ | Rot mit Blitz, Flammen beim Turbo | **Turbo** an/aus – 5× so schnell (Kurven bleiben gleich eng) |
+| **Kaktus** 🌵 | Grün mit Stacheln und Blüte, Gebiet wird zur Sandwüste mit Kakteen und Kaktusblüten | **Stacheln!** – schaltet alle Spieler im Umkreis von 6 Feldern aus, danach 3 Sekunden Abklingzeit |
+| **Lightning McQueen** ⚡ | Rot mit Blitz, Gebiet wird zur Rennstrecke mit rot-weißen Randsteinen, Flammen beim Turbo | **Turbo** an/aus – 5× so schnell (Kurven bleiben gleich eng) |
 
 Einhorn, Kaktus und McQueen schalten sich nicht gegenseitig aus: Ein unsterbliches Einhorn übersteht auch die Kaktus-Stacheln.
 

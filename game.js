@@ -587,6 +587,117 @@
 
   const FONT = '"Fredoka", "Nunito", system-ui, -apple-system, "Segoe UI", sans-serif';
 
+  // ---------- Gebiets-Muster für Geheimnamen ----------
+  // Kaktus: Sandwüste mit Kakteen und Blüten. Lightning McQueen: Rennstrecke.
+  // Die Kacheln werden nur bei neuer Zellgröße neu gezeichnet und am Spielfeld ausgerichtet.
+  const SKIN_RGB = { 2: [242, 207, 134], 3: [63, 63, 70] };
+  const SKIN_TRAIL_RGB = { 2: [236, 214, 170], 3: [140, 140, 150] };
+  const skinCache = { cell: 0 };
+
+  function drawCactus(g, x, y, h) {
+    g.fillStyle = 'rgba(150, 100, 40, .25)';
+    g.beginPath(); g.ellipse(x, y, h * 0.32, h * 0.07, 0, 0, Math.PI * 2); g.fill();
+    g.lineCap = 'round';
+    g.lineJoin = 'round';
+    const arms = [[x, y, x, y - h], [x, y - h * 0.42, x - h * 0.32, y - h * 0.42, x - h * 0.32, y - h * 0.72],
+      [x, y - h * 0.58, x + h * 0.3, y - h * 0.58, x + h * 0.3, y - h * 0.86]];
+    for (const [w, col] of [[0.24, '#2f9e44'], [0.09, '#69db7c']]) {
+      g.strokeStyle = col;
+      g.lineWidth = h * w;
+      for (const pts of arms) {
+        g.beginPath();
+        g.moveTo(pts[0] + (col === '#69db7c' ? -h * 0.04 : 0), pts[1]);
+        for (let k = 2; k < pts.length; k += 2) g.lineTo(pts[k] + (col === '#69db7c' ? -h * 0.04 : 0), pts[k + 1]);
+        g.stroke();
+      }
+    }
+  }
+
+  function drawFlower(g, x, y, r) {
+    g.fillStyle = '#f472b6';
+    for (let k = 0; k < 5; k++) {
+      const a = (k / 5) * Math.PI * 2 - Math.PI / 2;
+      g.beginPath(); g.arc(x + Math.cos(a) * r, y + Math.sin(a) * r, r * 0.8, 0, Math.PI * 2); g.fill();
+    }
+    g.fillStyle = '#fde047';
+    g.beginPath(); g.arc(x, y, r * 0.65, 0, Math.PI * 2); g.fill();
+  }
+
+  function makeSkinTile(kind, cell) {
+    const n = kind === 'kaktus' ? 6 : 8;           // Kachelgröße in Feldern
+    const T = Math.round(cell * n);
+    const c = document.createElement('canvas');
+    c.width = c.height = T;
+    const g = c.getContext('2d');
+    let seed = kind === 'kaktus' ? 7 : 13;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    if (kind === 'kaktus') {
+      g.fillStyle = '#f2cf86';
+      g.fillRect(0, 0, T, T);
+      // Dünen (Wellen mit Kachel-Periode, damit die Kacheln nahtlos sind)
+      for (const [yy, col] of [[0.18, 'rgba(255,241,205,.8)'], [0.5, 'rgba(255,241,205,.8)'], [0.82, 'rgba(255,241,205,.8)']]) {
+        for (const [dy, c2, lw] of [[cell * 0.12, 'rgba(196,140,60,.3)', 0.14], [0, col, 0.12]]) {
+          g.strokeStyle = c2;
+          g.lineWidth = cell * lw;
+          g.beginPath();
+          for (let x = 0; x <= T; x += 2) {
+            const y = yy * T + dy + Math.sin((x / T) * Math.PI * 4 + yy * 9) * cell * 0.3;
+            if (x === 0) g.moveTo(x, y); else g.lineTo(x, y);
+          }
+          g.stroke();
+        }
+      }
+      // Steinchen
+      for (let k = 0; k < 10; k++) {
+        g.fillStyle = k % 2 ? 'rgba(161,110,55,.45)' : 'rgba(255,255,255,.5)';
+        g.beginPath(); g.arc(cell * (0.5 + rnd() * (n - 1)), cell * (0.5 + rnd() * (n - 1)), cell * (0.05 + rnd() * 0.06), 0, Math.PI * 2); g.fill();
+      }
+      drawCactus(g, cell * 1.6, cell * 4.6, cell * 2.1);
+      drawCactus(g, cell * 4.4, cell * 2.2, cell * 1.4);
+      drawFlower(g, cell * 1.6, cell * 2.4, cell * 0.17);   // Blüte auf dem großen Kaktus
+      drawFlower(g, cell * 4.7, cell * 4.7, cell * 0.22);
+      drawFlower(g, cell * 0.7, cell * 0.8, cell * 0.16);
+      drawFlower(g, cell * 3.2, cell * 5.5, cell * 0.14);
+    } else {
+      // Asphalt mit Körnung
+      g.fillStyle = '#3f3f46';
+      g.fillRect(0, 0, T, T);
+      for (let k = 0; k < n * n * 6; k++) {
+        g.fillStyle = k % 2 ? 'rgba(255,255,255,.07)' : 'rgba(0,0,0,.18)';
+        g.fillRect(rnd() * T, rnd() * T, cell * 0.06, cell * 0.06);
+      }
+      // Reifenspuren
+      g.strokeStyle = 'rgba(0,0,0,.28)';
+      g.lineWidth = cell * 0.12;
+      for (const off of [0, cell * 0.35]) {
+        g.beginPath();
+        g.moveTo(cell * 0.8, cell * 6.6 + off);
+        g.quadraticCurveTo(cell * 3, cell * 5.6 + off, cell * 5.5, cell * 6.4 + off);
+        g.stroke();
+      }
+      // Fahrbahnmarkierungen
+      g.fillStyle = '#f4f4f5';
+      for (let k = 0; k < n / 2; k++) g.fillRect(cell * (k * 2 + 0.3), cell * 1.92, cell * 1.3, cell * 0.16);
+      g.fillStyle = 'rgba(250, 204, 21, .9)';
+      for (let k = 0; k < n / 2; k++) g.fillRect(cell * (k * 2 + 1.3), cell * 5.92, cell * 1.3, cell * 0.16);
+      // kleine Start-/Ziellinie
+      const q = cell * 0.25;
+      for (let i = 0; i < 4; i++) for (let j = 0; j < 8; j++) {
+        g.fillStyle = (i + j) % 2 ? '#18181b' : '#fafafa';
+        g.fillRect(cell * 6.2 + i * q, cell * 3 + j * q, q, q);
+      }
+    }
+    return c;
+  }
+
+  function skinPattern(kind, cell, ox, oy) {
+    if (skinCache.cell !== cell) { skinCache.cell = cell; skinCache.kaktus = null; skinCache.mcqueen = null; }
+    if (!skinCache[kind]) skinCache[kind] = ctx.createPattern(makeSkinTile(kind, cell), 'repeat');
+    const pat = skinCache[kind];
+    if (pat.setTransform && typeof DOMMatrix !== 'undefined') pat.setTransform(new DOMMatrix([1, 0, 0, 1, ox, oy]));
+    return pat;
+  }
+
   // Punktraster als Hintergrund-Muster (wird nur bei neuer Zellgröße neu erzeugt)
   let bgPattern = null, bgPatternCell = 0;
   function bgPatternFor(cell) {
@@ -718,13 +829,12 @@
 
     rbFlag.fill(0);
     spFlag.fill(0);
-    let anyRb = false, anyDeco = false;
+    let anyRb = false;
     for (const p of players) {
       if (!p) continue;
       const sp = SP_CODE[FE.specialOf(p.name)] || 0;
       spFlag[p.id] = sp;
       if (sp === 1) { rbFlag[p.id] = 1; anyRb = true; }
-      if (sp === 2 || sp === 3) anyDeco = true;
     }
 
     // Hintergrund außerhalb und Spielfeld mit runden Ecken
@@ -771,7 +881,11 @@
     const groups = [];
     for (const o of ownIds) {
       const col = colorOf(players[o]);
-      const g = { path: new Path2D(), top: rbFlag[o] ? rbTop : col.base, dark: rbFlag[o] ? rbDark : col.dark };
+      const sp = spFlag[o];
+      const g = { path: new Path2D(), sp, top: col.base, dark: col.dark };
+      if (sp === 1) { g.top = rbTop; g.dark = rbDark; }
+      else if (sp === 2) { g.top = skinPattern('kaktus', cell, ox, oy); g.dark = '#c9974a'; }
+      else if (sp === 3) { g.top = skinPattern('mcqueen', cell, ox, oy); g.dark = '#1f1f23'; }
       traceInto(g.path, smoothField(owner, o, xa, ya, ww, wh), ww, wh, xa, ya, 0.4, cell, ox, oy);
       groups.push(g);
     }
@@ -784,48 +898,29 @@
     ctx.restore();
     for (const g of groups) { ctx.fillStyle = g.top; ctx.fill(g.path, 'evenodd'); }
 
-    // Muster im Gebiet: Kaktus-Stacheln und McQueen-Blitze
-    if (anyDeco) {
-      const spikes = new Path2D(), bolts = new Path2D();
-      for (let y = Math.max(1, y0); y <= Math.min(H - 2, y1); y++) {
-        for (let x = Math.max(1, x0); x <= Math.min(W - 2, x1); x++) {
-          const i = y * W + x, o = owner[i], sp = spFlag[o];
-          if (sp !== 2 && sp !== 3) continue;
-          if (owner[i - 1] !== o || owner[i + 1] !== o || owner[i - W] !== o || owner[i + W] !== o) continue;
-          const h = cellHash(x, y);
-          const cx = ox + (x + 0.5) * cell, cy = oy + (y + 0.5) * cell;
-          if (sp === 2 && h % 4 === 0) {
-            const L = cell * 0.22;
-            for (let k = 0; k < 3; k++) {
-              const a = (h % 6) * 0.3 + (k * Math.PI) / 3;
-              spikes.moveTo(cx - Math.cos(a) * L, cy - Math.sin(a) * L);
-              spikes.lineTo(cx + Math.cos(a) * L, cy + Math.sin(a) * L);
-            }
-          } else if (sp === 3 && h % 6 === 0) {
-            const u = cell * 0.18;
-            bolts.moveTo(cx + u * 0.4, cy - u * 1.6);
-            bolts.lineTo(cx - u * 0.8, cy + u * 0.2);
-            bolts.lineTo(cx, cy + u * 0.2);
-            bolts.lineTo(cx - u * 0.4, cy + u * 1.6);
-            bolts.lineTo(cx + u * 0.8, cy - u * 0.2);
-            bolts.lineTo(cx, cy - u * 0.2);
-            bolts.closePath();
-          }
-        }
+    // Rennstrecke: rot-weiße Randsteine um McQueen-Gebiete, Sandkante um Kaktus-Gebiete
+    for (const g of groups) {
+      if (g.sp === 3) {
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = Math.max(3, cell * 0.3);
+        ctx.strokeStyle = '#ef4444';
+        ctx.stroke(g.path);
+        ctx.setLineDash([cell * 0.55, cell * 0.55]);
+        ctx.strokeStyle = '#ffffff';
+        ctx.stroke(g.path);
+        ctx.setLineDash([]);
+      } else if (g.sp === 2) {
+        ctx.lineWidth = Math.max(1.5, cell * 0.1);
+        ctx.strokeStyle = 'rgba(180, 120, 50, .55)';
+        ctx.stroke(g.path);
       }
-      ctx.strokeStyle = 'rgba(20, 83, 45, .55)';
-      ctx.lineWidth = Math.max(1, cell * 0.06);
-      ctx.lineCap = 'round';
-      ctx.stroke(spikes);
-      ctx.fillStyle = 'rgba(253, 224, 71, .9)';
-      ctx.fill(bolts);
     }
 
     // Spuren als weiche Schläuche
     for (const t of trailIds) {
       const path = new Path2D();
       traceInto(path, smoothField(trailMap, t, xa, ya, ww, wh), ww, wh, xa, ya, 0.5, cell, ox, oy);
-      ctx.fillStyle = rbFlag[t] ? rbTrail : colorOf(players[t]).trail;
+      ctx.fillStyle = rbFlag[t] ? rbTrail : spFlag[t] === 2 ? 'rgba(222, 178, 96, .75)' : spFlag[t] === 3 ? 'rgba(63, 63, 70, .6)' : colorOf(players[t]).trail;
       ctx.fill(path, 'evenodd');
     }
     ctx.restore();
@@ -1065,8 +1160,8 @@
     for (let i = 0; i < N; i++) {
       const t = trailMap[i], o = owner[i];
       let rgb = null;
-      if (t && players[t]) rgb = rbFlag[t] ? RB_TRAIL_RGB[rbIndex(i % W, (i / W) | 0, rt)] : colorOf(players[t]).trailRgb;
-      else if (o && players[o]) rgb = rbFlag[o] ? RB_RGB[rbIndex(i % W, (i / W) | 0, rt)] : colorOf(players[o]).rgb;
+      if (t && players[t]) rgb = rbFlag[t] ? RB_TRAIL_RGB[rbIndex(i % W, (i / W) | 0, rt)] : SKIN_TRAIL_RGB[spFlag[t]] || colorOf(players[t]).trailRgb;
+      else if (o && players[o]) rgb = rbFlag[o] ? RB_RGB[rbIndex(i % W, (i / W) | 0, rt)] : SKIN_RGB[spFlag[o]] || colorOf(players[o]).rgb;
       const k = i * 4;
       if (rgb) { d[k] = rgb[0]; d[k + 1] = rgb[1]; d[k + 2] = rgb[2]; } else { d[k] = 255; d[k + 1] = 250; d[k + 2] = 240; }
       d[k + 3] = 255;
