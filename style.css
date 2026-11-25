@@ -359,6 +359,7 @@ h2 { margin: 6px 0 8px; font-size: 34px; color: var(--grape); }
 @keyframes rainbowInput { to { background-position: 0 0, -200% 0; } }
 #nameInput.kaktus { border-color: #22c55e; background: #f0fdf4; color: #15803d; }
 #nameInput.stein { border-color: #6b7280; background: #e5e7eb; color: #374151; }
+#nameInput.dieb { border-color: #fbbf24; background: #312e81; color: #fde68a; }
 #nameInput.mcqueen {
   border-color: transparent;
   color: #b91c1c;

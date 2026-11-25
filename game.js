@@ -52,7 +52,7 @@
   const rbIndex = (x, y, t) => ((((x + y) * 3 + Math.floor(t * 24)) % HUES) + HUES) % HUES;
   const cellHash = (x, y) => (Math.imul(x, 73856093) ^ Math.imul(y, 19349663)) >>> 0;
   const isRb = p => FE.isRainbowName(p.name);
-  const SP_CODE = { einhorn: 1, kaktus: 2, mcqueen: 3, stein: 4 };
+  const SP_CODE = { einhorn: 1, kaktus: 2, mcqueen: 3, stein: 4, dieb: 5 };
   const blasts = [];                // kleine Stachel-Effekte, wenn der Kaktus jemanden erwischt
 
   // ---------- Hilfsfunktionen ----------
@@ -151,6 +151,10 @@
     } else if (ev.k === 'spikes') {
       const mine = myId && ev.id === myId;
       if (session.kind !== 'solo' || mine) addFeed(ev.on ? `${mine ? 'Deine' : ev.n + 's'} Stacheln sind ausgefahren!` : `${mine ? 'Deine' : ev.n + 's'} Stacheln sind eingezogen`, mine);
+    } else if (ev.k === 'steal') {
+      const mine = myId && ev.id === myId;
+      if (mine) floaters.push({ x: ev.x, y: ev.y - 1, text: '+' + fmtPct((ev.g / N) * 100) + ' geklaut!', life: 1.6, color: '#d97706' });
+      addFeed(`${mine ? 'Du hast' : ev.n + ' hat'} ${ev.vn} ausgeraubt`, mine);
     } else if (ev.k === 'join') {
       if (!creatingSelf && ev.id !== myId && session.kind !== 'solo') addFeed(`${ev.n} ist beigetreten`, true);
     }
@@ -587,8 +591,8 @@
   // ---------- Gebiets-Muster für Geheimnamen ----------
   // Kaktus: Sandwüste mit Kakteen und Blüten. Lightning McQueen: Rennstrecke.
   // Die Kacheln werden nur bei neuer Zellgröße neu gezeichnet und am Spielfeld ausgerichtet.
-  const SKIN_RGB = { 2: [242, 207, 134], 3: [63, 63, 70], 4: [148, 155, 168] };
-  const SKIN_TRAIL_RGB = { 2: [236, 214, 170], 3: [140, 140, 150], 4: [107, 114, 128] };
+  const SKIN_RGB = { 2: [242, 207, 134], 3: [63, 63, 70], 4: [148, 155, 168], 5: [49, 46, 129] };
+  const SKIN_TRAIL_RGB = { 2: [236, 214, 170], 3: [140, 140, 150], 4: [107, 114, 128], 5: [165, 160, 240] };
   const skinCache = { cell: 0 };
 
   function drawCactus(g, x, y, h) {
@@ -621,12 +625,12 @@
   }
 
   function makeSkinTile(kind, cell) {
-    const n = kind === 'kaktus' ? 6 : kind === 'stein' ? 4 : 8;   // Kachelgröße in Feldern
+    const n = kind === 'kaktus' ? 6 : kind === 'stein' ? 4 : kind === 'dieb' ? 5 : 8;   // Kachelgröße in Feldern
     const T = Math.round(cell * n);
     const c = document.createElement('canvas');
     c.width = c.height = T;
     const g = c.getContext('2d');
-    let seed = kind === 'kaktus' ? 7 : kind === 'stein' ? 29 : 13;
+    let seed = kind === 'kaktus' ? 7 : kind === 'stein' ? 29 : kind === 'dieb' ? 41 : 13;
     const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
     if (kind === 'kaktus') {
       g.fillStyle = '#f2cf86';
@@ -655,6 +659,29 @@
       drawFlower(g, cell * 4.7, cell * 4.7, cell * 0.22);
       drawFlower(g, cell * 0.7, cell * 0.8, cell * 0.16);
       drawFlower(g, cell * 3.2, cell * 5.5, cell * 0.14);
+    } else if (kind === 'dieb') {
+      // Diebesbeute: dunkler Samt mit Goldmünzen und Edelsteinen
+      g.fillStyle = '#312e81';
+      g.fillRect(0, 0, T, T);
+      g.strokeStyle = 'rgba(255,255,255,.06)';
+      g.lineWidth = cell * 0.25;
+      for (let k = -n; k <= n; k += 1) { g.beginPath(); g.moveTo(k * cell * 1.25, 0); g.lineTo(k * cell * 1.25 + T, T); g.stroke(); }
+      const coins = [[0.9, 0.9, 0.3], [3.4, 1.4, 0.26], [2.0, 2.9, 0.32], [4.1, 3.9, 0.24], [0.8, 4.0, 0.22]];
+      for (const [cx, cy, r] of coins) {
+        const X = cx * cell, Y = cy * cell, R = r * cell;
+        g.fillStyle = '#b45309'; g.beginPath(); g.arc(X, Y + R * 0.2, R, 0, Math.PI * 2); g.fill();
+        g.fillStyle = '#fbbf24'; g.beginPath(); g.arc(X, Y, R, 0, Math.PI * 2); g.fill();
+        g.strokeStyle = '#f59e0b'; g.lineWidth = R * 0.18; g.beginPath(); g.arc(X, Y, R * 0.62, 0, Math.PI * 2); g.stroke();
+        g.fillStyle = 'rgba(255,255,255,.6)'; g.beginPath(); g.arc(X - R * 0.35, Y - R * 0.35, R * 0.18, 0, Math.PI * 2); g.fill();
+      }
+      const gems = [[2.6, 0.7, '#22d3ee'], [1.0, 2.3, '#f472b6'], [3.4, 2.9, '#4ade80'], [2.6, 4.4, '#22d3ee']];
+      for (const [cx, cy, col] of gems) {
+        const X = cx * cell, Y = cy * cell, R = cell * 0.24;
+        g.fillStyle = col;
+        g.beginPath(); g.moveTo(X, Y - R); g.lineTo(X + R * 0.8, Y - R * 0.2); g.lineTo(X, Y + R); g.lineTo(X - R * 0.8, Y - R * 0.2); g.closePath(); g.fill();
+        g.fillStyle = 'rgba(255,255,255,.55)';
+        g.beginPath(); g.moveTo(X, Y - R); g.lineTo(X + R * 0.35, Y - R * 0.2); g.lineTo(X, Y - R * 0.05); g.lineTo(X - R * 0.35, Y - R * 0.2); g.closePath(); g.fill();
+      }
     } else if (kind === 'stein') {
       // Kopfsteinpflaster: Fugen dunkel, Steine in leicht unterschiedlichen Grautönen
       g.fillStyle = '#4b5563';
@@ -712,7 +739,7 @@
   }
 
   function skinPattern(kind, cell, ox, oy) {
-    if (skinCache.cell !== cell) { skinCache.cell = cell; skinCache.kaktus = null; skinCache.mcqueen = null; skinCache.stein = null; }
+    if (skinCache.cell !== cell) { skinCache.cell = cell; skinCache.kaktus = null; skinCache.mcqueen = null; skinCache.stein = null; skinCache.dieb = null; }
     if (!skinCache[kind]) skinCache[kind] = ctx.createPattern(makeSkinTile(kind, cell), 'repeat');
     const pat = skinCache[kind];
     if (pat.setTransform && typeof DOMMatrix !== 'undefined') pat.setTransform(new DOMMatrix([1, 0, 0, 1, ox, oy]));
@@ -908,6 +935,7 @@
       else if (sp === 2) { g.top = skinPattern('kaktus', cell, ox, oy); g.dark = '#c9974a'; }
       else if (sp === 3) { g.top = skinPattern('mcqueen', cell, ox, oy); g.dark = '#1f1f23'; }
       else if (sp === 4) { g.top = skinPattern('stein', cell, ox, oy); g.dark = '#374151'; }
+      else if (sp === 5) { g.top = skinPattern('dieb', cell, ox, oy); g.dark = '#1e1b4b'; }
       traceInto(g.path, smoothField(owner, o, xa, ya, ww, wh), ww, wh, xa, ya, 0.4, cell, ox, oy);
       groups.push(g);
     }
@@ -938,6 +966,10 @@
       } else if (g.sp === 4) {
         ctx.lineWidth = Math.max(1.5, cell * 0.12);
         ctx.strokeStyle = '#374151';
+        ctx.stroke(g.path);
+      } else if (g.sp === 5) {
+        ctx.lineWidth = Math.max(1.5, cell * 0.1);
+        ctx.strokeStyle = '#fbbf24';
         ctx.stroke(g.path);
       }
     }
@@ -1110,6 +1142,16 @@
       const c = Math.cos(p.ra), s = Math.sin(p.ra);
       const ex = c * size * 0.15, ey = s * size * 0.15;
       const px = -s * size * 0.19, py = c * size * 0.19;
+      if (sp === 5) {
+        // Dieb: schwarze Ganovenmaske über den Augen
+        ctx.strokeStyle = '#111827';
+        ctx.lineCap = 'round';
+        ctx.lineWidth = size * 0.36;
+        ctx.beginPath();
+        ctx.moveTo(sx + ex + px * 1.55, sy + ey + py * 1.55);
+        ctx.lineTo(sx + ex - px * 1.55, sy + ey - py * 1.55);
+        ctx.stroke();
+      }
       for (const sign of [-1, 1]) {
         const cx2 = sx + ex + px * sign, cy2 = sy + ey + py * sign;
         ctx.fillStyle = '#fff';
@@ -1309,7 +1351,7 @@
     }
     // Spezialkraft-Knopf für Geheimnamen
     let kind = ui === 'play' && p && p.alive ? FE.specialOf(p.name) : null;
-    if (kind === 'stein') kind = null;   // Stein braucht keinen Knopf – seine Kraft wirkt immer
+    if (kind === 'stein' || kind === 'dieb') kind = null;   // Stein und Dieb brauchen keinen Knopf – ihre Kraft wirkt immer
     if (powerBtn.hidden === !!kind) powerBtn.hidden = !kind;
     if (kind) {
       let label, on = false;
@@ -1419,7 +1461,7 @@
 
   function updateNameFx() {
     const kind = FE.specialOf(nameInput.value);
-    for (const k of ['einhorn', 'kaktus', 'mcqueen', 'stein']) nameInput.classList.toggle(k, kind === k);
+    for (const k of ['einhorn', 'kaktus', 'mcqueen', 'stein', 'dieb']) nameInput.classList.toggle(k, kind === k);
   }
 
   function showGameOver() {

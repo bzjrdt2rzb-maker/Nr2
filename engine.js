@@ -46,13 +46,14 @@
 
   /**
    * Geheimnamen: 'einhorn' (Regenbogen + unsterblich), 'kaktus' (Stacheln),
-   * 'mcqueen' (Lightning McQueen: Turbo), 'stein' (unzerstörbare Spur). Groß-/Kleinschreibung und Leerzeichen egal.
+   * 'mcqueen' (Lightning McQueen: Turbo), 'stein' (unzerstörbare Spur), 'dieb' (klaut Gebiete). Groß-/Kleinschreibung und Leerzeichen egal.
    */
   function specialOf(name) {
     const n = String(name == null ? '' : name).toLowerCase().replace(/\s+/g, ' ').trim();
     if (n === 'einhorn') return 'einhorn';
     if (n === 'kaktus') return 'kaktus';
     if (n === 'stein') return 'stein';
+    if (n === 'dieb') return 'dieb';
     if (n === 'lightning mcqueen' || n === 'lightningmcqueen') return 'mcqueen';
     return null;
   }
@@ -73,6 +74,7 @@
     if (sp === 'kaktus') return 4;
     if (sp === 'mcqueen') return 0;
     if (sp === 'stein') return 12;
+    if (sp === 'dieb') return 8;
     return color;
   }
 
@@ -141,7 +143,7 @@
         id, isBot, name: '', color: 0, alive: false,
         x: 0, y: 0, cx: 0, cy: 0, angle: 0, target: 0,
         trail: [], count: 0, bx0: W, by0: H, bx1: -1, by1: -1,
-        kills: 0, bestPct: 0, spawnTime: 0, respawnAt: 0, invincible: false, boost: false, spikes: false, stone: false,
+        kills: 0, bestPct: 0, spawnTime: 0, respawnAt: 0, invincible: false, boost: false, spikes: false, stone: false, thief: false,
         ai: { mode: 'home', plan: null, home: null, homeTimer: 0, tick: 0, aggr: Math.random(), hunt: -1, huntUntil: 0 },
       };
     }
@@ -244,10 +246,15 @@
       p.alive = false;
       for (const i of p.trail) if (trailMap[i] === p.id) setTrail(i, 0);
       p.trail = [];
+      // Wird man vom Dieb erwischt, gehört ihm danach das ganze Gebiet
+      const thief = killer && killer !== p && killer.alive && killer.thief ? killer : null;
+      let stolen = 0;
       for (let y = Math.max(0, p.by0); y <= Math.min(H - 1, p.by1); y++)
         for (let x = Math.max(0, p.bx0); x <= Math.min(W - 1, p.bx1); x++) {
           const i = y * W + x;
-          if (owner[i] === p.id) { owner[i] = 0; markDirty(i); }
+          if (owner[i] !== p.id) continue;
+          if (thief) { setOwner(i, thief.id); stolen++; }
+          else { owner[i] = 0; markDirty(i); }
         }
       p.count = 0;
       eng.deathStats[reason] = (eng.deathStats[reason] || 0) + 1;
@@ -257,6 +264,10 @@
         x: Math.round(p.x * 100) / 100, y: Math.round(p.y * 100) / 100,
         vn: p.name, kn: killer ? killer.name : '', c: p.color,
       });
+      if (thief && stolen) {
+        emit({ k: 'steal', id: thief.id, g: stolen, n: thief.name, vn: p.name,
+          x: Math.round(thief.x * 100) / 100, y: Math.round(thief.y * 100) / 100 });
+      }
       if (p.isBot) p.respawnAt = eng.time + rand(1.5, 3.5);
     }
 
@@ -645,6 +656,7 @@
       if (sp !== 'mcqueen') p.boost = false;
       p.spikes = sp === 'kaktus';             // Kaktus startet mit ausgefahrenen Stacheln
       p.stone = sp === 'stein';               // Stein: unzerstörbare Spur
+      p.thief = sp === 'dieb';                // Dieb: klaut das Gebiet seiner Opfer
       // Bots mit derselben Farbe bekommen eine andere
       for (const q of players) if (q && q.isBot && q.color === p.color) giveBotIdentity(q);
       spawn(p);
