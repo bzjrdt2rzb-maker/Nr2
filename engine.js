@@ -63,7 +63,7 @@
   }
 
   function cleanName(name, fallback) {
-    const n = String(name == null ? '' : name).replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 18);
+    const n = String(name == null ? '' : name).replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 30);
     return n || fallback;
   }
 
