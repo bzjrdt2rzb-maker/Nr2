@@ -307,8 +307,8 @@
           // Zurückrutschen in eine der zuletzt gezogenen Zellen (Streifen einer
           // Zellgrenze) zählt nicht als Selbstkollision.
           if (p.trail.lastIndexOf(i) >= p.trail.length - 4) return;
-          // Lightning McQueen kann gefahrlos über die eigene Spur fahren
-          if (!p.isBot && specialOf(p.name) === 'mcqueen') return;
+          // Lightning McQueen und Stein können gefahrlos über die eigene Spur fahren
+          if (!p.isBot && (specialOf(p.name) === 'mcqueen' || specialOf(p.name) === 'stein')) return;
           kill(p, p, 'self');
           return;
         }

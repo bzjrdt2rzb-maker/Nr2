@@ -34,7 +34,7 @@ prüft der Server bzw. Gastgeber den Namen – wer anders heißt, kann die Kräf
 | **Einhorn** 🦄 | Glitzerndes Regenbogen-Gebiet, Horn | **Unsterblich** an/aus |
 | **Kaktus** 🌵 | Grün mit Stacheln und Blüte, Gebiet wird zur Sandwüste mit Kakteen und Kaktusblüten | **Stacheln** an/aus – beim Start automatisch an. Solange sie an sind, wird jeder automatisch ausgeschaltet, der in den Umkreis von 6 Feldern kommt (grüne Zone mit Stachelkranz) |
 | **Lightning McQueen** ⚡ | Rot mit Blitz, Gebiet wird zur Rennstrecke mit rot-weißen Randsteinen, Flammen beim Turbo | **Turbo** an/aus – 5× so schnell (Kurven bleiben gleich eng). Außerdem kann McQueen immer gefahrlos über die eigene Spur fahren |
-| **Stein** 🪨 | Grauer Felsbrocken, Gebiet wird zu Kopfsteinpflaster, Spur ist eine doppelt so breite Steinmauer | *kein Knopf* – die **Spur ist unzerstörbar**: Wer darüberfährt, schneidet den Stein nicht ab (und stirbt auch selbst nicht daran) |
+| **Stein** 🪨 | Grauer Felsbrocken, Gebiet wird zu Kopfsteinpflaster, Spur ist eine doppelt so breite Steinmauer | *kein Knopf* – die **Spur ist unzerstörbar**: Wer darüberfährt, schneidet den Stein nicht ab (und stirbt auch selbst nicht daran). Der Stein selbst kann auch gefahrlos über seine eigene Spur fahren |
 | **Dieb** 🦹 | Figur mit schwarzer Ganovenmaske, Gebiet voller Goldmünzen und Edelsteine | *kein Knopf* – schaltet der Dieb jemanden aus, **klaut er dessen ganzes Gebiet** („+x % geklaut!“) statt dass es verschwindet |
 
 **Schutz nach Abschuss:** Alle fünf Geheimfiguren sind nach jedem Abschuss (Spur abgeschnitten, Frontal-Zusammenstoß,
