@@ -30,8 +30,7 @@
 
   // Geheimnamen mit Spezialkraft
   const BOOST = 5;            // Turbo von Lightning McQueen
-  const BLAST_RADIUS = 6;     // Reichweite des Kaktus-Stachelangriffs (Felder)
-  const BLAST_COOLDOWN = 3;   // Sekunden bis der Kaktus wieder zustechen kann
+  const SPIKE_RADIUS = 6;     // Reichweite der Kaktus-Stacheln (Felder)
 
   const rand = (a, b) => a + Math.random() * (b - a);
   const randi = (a, b) => Math.floor(rand(a, b + 1));
@@ -140,7 +139,7 @@
         id, isBot, name: '', color: 0, alive: false,
         x: 0, y: 0, cx: 0, cy: 0, angle: 0, target: 0,
         trail: [], count: 0, bx0: W, by0: H, bx1: -1, by1: -1,
-        kills: 0, bestPct: 0, spawnTime: 0, respawnAt: 0, invincible: false, boost: false, blastReadyAt: 0,
+        kills: 0, bestPct: 0, spawnTime: 0, respawnAt: 0, invincible: false, boost: false, spikes: false,
         ai: { mode: 'home', plan: null, home: null, homeTimer: 0, tick: 0, aggr: Math.random(), hunt: -1, huntUntil: 0 },
       };
     }
@@ -337,6 +336,18 @@
       const gained = p.count - before;
       if (gained > 0) emit({ k: 'cap', id, g: gained, x: Math.round(p.x * 100) / 100, y: Math.round(p.y * 100) / 100 });
       checkWipeouts(p);
+    }
+
+    // Aktive Kaktus-Stacheln schalten jeden aus, der in den Umkreis kommt
+    function cactusSpikes() {
+      for (const p of players) {
+        if (!p || !p.alive || !p.spikes) continue;
+        for (const q of players) {
+          if (!q || q === p || !q.alive) continue;
+          const dx = q.x - p.x, dy = q.y - p.y;
+          if (dx * dx + dy * dy <= SPIKE_RADIUS * SPIKE_RADIUS) kill(q, p, 'cactus');
+        }
+      }
     }
 
     function headCollisions() {
@@ -589,6 +600,7 @@
           move(p, dist * b, turn * b);
         }
         headCollisions();
+        cactusSpikes();
       }
       manageBots();
       for (const p of players) if (p && p.alive) p.bestPct = Math.max(p.bestPct, (p.count / N) * 100);
@@ -619,6 +631,7 @@
       const sp = specialOf(p.name);
       if (sp !== 'einhorn') p.invincible = false;
       if (sp !== 'mcqueen') p.boost = false;
+      if (sp !== 'kaktus') p.spikes = false;
       // Bots mit derselben Farbe bekommen eine andere
       for (const q of players) if (q && q.isBot && q.color === p.color) giveBotIdentity(q);
       spawn(p);
@@ -642,16 +655,15 @@
       return true;
     };
 
-    /** Stachelangriff – nur für Spieler namens "Kaktus": schaltet alle in der Nähe aus. */
-    eng.blast = function (p) {
-      if (!p || p.isBot || !p.alive || players[p.id] !== p || specialOf(p.name) !== 'kaktus') return false;
-      if (eng.time < p.blastReadyAt) return false;
-      p.blastReadyAt = eng.time + BLAST_COOLDOWN;
-      emit({ k: 'blast', id: p.id, x: Math.round(p.x * 100) / 100, y: Math.round(p.y * 100) / 100, r: BLAST_RADIUS, cd: BLAST_COOLDOWN });
-      for (const q of players) {
-        if (!q || q === p || !q.alive) continue;
-        if (Math.hypot(q.x - p.x, q.y - p.y) <= BLAST_RADIUS) kill(q, p, 'cactus');
-      }
+    /** Stacheln an/aus – nur für Spieler namens "Kaktus". Solange sie an sind, wird jeder
+        im Umkreis automatisch ausgeschaltet (siehe cactusSpikes). */
+    eng.setSpikes = function (p, on) {
+      if (!p || p.isBot || players[p.id] !== p || specialOf(p.name) !== 'kaktus') return false;
+      on = !!on;
+      if (p.spikes === on) return true;
+      p.spikes = on;
+      emit({ k: 'spikes', id: p.id, on: on ? 1 : 0, n: p.name });
+      if (on) cactusSpikes();
       return true;
     };
 
@@ -696,7 +708,7 @@
       for (const p of players) {
         if (!p) continue;
         out.push([p.id, Math.round(p.x * 100), Math.round(p.y * 100), Math.round(p.angle * 1000),
-          p.alive ? 1 : 0, p.count, p.kills, Math.round(p.spawnTime * 10), p.invincible ? 1 : 0, p.boost ? 1 : 0]);
+          p.alive ? 1 : 0, p.count, p.kills, Math.round(p.spawnTime * 10), p.invincible ? 1 : 0, p.boost ? 1 : 0, p.spikes ? 1 : 0]);
       }
       return out;
     }
@@ -772,8 +784,8 @@
           engine.setInvincible(c.player, !!msg.on);
         } else if (msg.t === 'boost' && c.player) {
           engine.setBoost(c.player, !!msg.on);
-        } else if (msg.t === 'blast' && c.player) {
-          engine.blast(c.player);
+        } else if (msg.t === 'spikes' && c.player) {
+          engine.setSpikes(c.player, !!msg.on);
         }
       },
       // Nach jedem Simulationsschritt aufrufen; schickt 20x pro Sekunde ein Update.
@@ -789,7 +801,7 @@
 
   return {
     W, H, N, SPEED, TURN, STEP, COLOR_COUNT, SPEEDS,
-    BOOST, BLAST_RADIUS, BLAST_COOLDOWN,
+    BOOST, SPIKE_RADIUS,
     createEngine, createHub, isRainbowName, specialOf, cleanName, wrapAngle, turnToward, rleDecode,
   };
 });

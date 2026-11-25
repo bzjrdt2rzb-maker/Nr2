@@ -96,7 +96,11 @@ html, body {
   text-shadow: 0 2px 0 rgba(0, 0, 0, .2);
   box-shadow: 0 6px 0 #14532d, 0 14px 30px rgba(43, 29, 78, .22);
 }
-#powerBtn[data-kind="kaktus"].cooldown { filter: saturate(.35) brightness(1.1); }
+#powerBtn[data-kind="kaktus"].on {
+  background: linear-gradient(135deg, #22c55e, #166534);
+  border-color: #bbf7d0;
+  box-shadow: 0 0 22px rgba(74, 222, 128, .9), 0 6px 0 #14532d;
+}
 #powerBtn[data-kind="mcqueen"] {
   background: linear-gradient(135deg, #f87171, #dc2626);
   color: #fff;

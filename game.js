@@ -53,8 +53,7 @@
   const cellHash = (x, y) => (Math.imul(x, 73856093) ^ Math.imul(y, 19349663)) >>> 0;
   const isRb = p => FE.isRainbowName(p.name);
   const SP_CODE = { einhorn: 1, kaktus: 2, mcqueen: 3 };
-  const blasts = [];                // Kaktus-Stachelringe (Effekt)
-  let blastReadyAt = 0;             // wann der eigene Kaktus wieder zustechen kann (performance.now)
+  const blasts = [];                // kleine Stachel-Effekte, wenn der Kaktus jemanden erwischt
 
   // ---------- Hilfsfunktionen ----------
   const rand = (a, b) => a + Math.random() * (b - a);
@@ -122,6 +121,7 @@
     if (!ev) return;
     if (ev.k === 'kill') {
       burst(ev.x, ev.y, ev.c, FE.isRainbowName(ev.vn));
+      if (ev.r === 'cactus') blasts.push({ x: ev.x, y: ev.y, r: 1.6, life: 0.6 });
       const mine = myId !== 0 && (ev.v === myId || ev.by === myId);
       let msg;
       if (ev.r === 'self') msg = `${ev.vn} ist über die eigene Spur gestolpert`;
@@ -148,13 +148,9 @@
     } else if (ev.k === 'boost') {
       const mine = myId && ev.id === myId;
       if (session.kind !== 'solo' || mine) addFeed(ev.on ? `${mine ? 'Du gibst' : ev.n + ' gibt'} Vollgas!` : `${mine ? 'Du fährst' : ev.n + ' fährt'} wieder normal`, mine);
-    } else if (ev.k === 'blast') {
-      blasts.push({ x: ev.x, y: ev.y, r: ev.r, life: 0.6 });
-      for (let k = 0; k < 30; k++) {
-        const a = rand(0, Math.PI * 2), v = rand(6, 14);
-        particles.push({ x: ev.x, y: ev.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: rand(0.3, 0.6), color: k % 3 ? '#16a34a' : '#bbf7d0', size: rand(0.15, 0.3) });
-      }
-      if (myId && ev.id === myId) blastReadyAt = performance.now() + ev.cd * 1000;
+    } else if (ev.k === 'spikes') {
+      const mine = myId && ev.id === myId;
+      if (session.kind !== 'solo' || mine) addFeed(ev.on ? `${mine ? 'Deine' : ev.n + 's'} Stacheln sind ausgefahren!` : `${mine ? 'Deine' : ev.n + 's'} Stacheln sind wieder eingezogen`, mine);
     } else if (ev.k === 'join') {
       if (!creatingSelf && ev.id !== myId && session.kind !== 'solo') addFeed(`${ev.n} ist beigetreten`, true);
     }
@@ -195,10 +191,11 @@
 
   function applyPlayers(arr) {
     const now = performance.now();
-    for (const [id, x, y, a, alive, count, kills, st, inv, bst] of arr) {
+    for (const [id, x, y, a, alive, count, kills, st, inv, bst, spk] of arr) {
       const p = remotePlayer(id);
       p.sx = x / 100; p.sy = y / 100; p.sa = a / 1000;
       p.boost = !!bst;
+      p.spikes = !!spk;
       const was = p.alive;
       p.alive = !!alive;
       if ((!was && p.alive) || Math.hypot(p.x - p.sx, p.y - p.sy) > 4 + SPEED * remote.speedMul * (p.boost ? FE.BOOST : 1) * 0.15) {
@@ -957,6 +954,32 @@
       const rb = rbFlag[p.id] === 1;
       const col = colorOf(p);
 
+      // Kaktus mit ausgefahrenen Stacheln: Gefahrenzone mit drehendem Stachelkranz
+      if (p.spikes) {
+        const R = FE.SPIKE_RADIUS * cell;
+        const pulse = 0.5 + 0.5 * Math.sin(rt * 5);
+        ctx.fillStyle = `rgba(34, 197, 94, ${0.1 + 0.06 * pulse})`;
+        ctx.beginPath(); ctx.arc(sx, sy, R, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = 'rgba(22, 163, 74, .85)';
+        ctx.lineWidth = Math.max(2, cell * 0.12);
+        ctx.setLineDash([cell * 0.4, cell * 0.25]);
+        ctx.lineDashOffset = -rt * cell * 2;
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#15803d';
+        const nSp = 28;
+        for (let k = 0; k < nSp; k++) {
+          const a = (k / nSp) * Math.PI * 2 + rt * 0.6;
+          const ca = Math.cos(a), sa = Math.sin(a), w = cell * 0.18;
+          ctx.beginPath();
+          ctx.moveTo(sx + ca * (R + cell * 0.5), sy + sa * (R + cell * 0.5));
+          ctx.lineTo(sx + ca * R - sa * w, sy + sa * R + ca * w);
+          ctx.lineTo(sx + ca * R + sa * w, sy + sa * R - ca * w);
+          ctx.closePath();
+          ctx.fill();
+        }
+      }
+
       // Unsterblich: pulsierender Leuchtring
       if (p.invincible) {
         const pulse = 0.5 + 0.5 * Math.sin(rt * 8);
@@ -1220,18 +1243,13 @@
     const kind = ui === 'play' && p && p.alive ? FE.specialOf(p.name) : null;
     if (powerBtn.hidden === !!kind) powerBtn.hidden = !kind;
     if (kind) {
-      let label, on = false, cooling = false;
+      let label, on = false;
       if (kind === 'einhorn') { on = !!p.invincible; label = `🦄 Unsterblich: ${on ? 'AN' : 'AUS'}`; }
       else if (kind === 'mcqueen') { on = !!p.boost; label = `⚡ Turbo 5×: ${on ? 'AN' : 'AUS'}`; }
-      else {
-        const left = (blastReadyAt - performance.now()) / 1000;
-        cooling = left > 0;
-        label = cooling ? `🌵 Lädt … ${left.toFixed(1).replace('.', ',')} s` : '🌵 Stacheln!';
-      }
+      else { on = !!p.spikes; label = `🌵 Stacheln: ${on ? 'AN' : 'AUS'}`; }
       if (powerBtn.textContent !== label) powerBtn.textContent = label;
       if (powerBtn.dataset.kind !== kind) powerBtn.dataset.kind = kind;
       powerBtn.classList.toggle('on', on);
-      powerBtn.classList.toggle('cooldown', cooling);
       powerBtn.setAttribute('aria-pressed', String(on));
     }
     if (ui === 'play' && p && p.alive) {
@@ -1385,8 +1403,7 @@
     } else if (kind === 'mcqueen') {
       if (isRemote()) send({ t: 'boost', on: !p.boost }); else localEngine.setBoost(localHuman, !localHuman.boost);
     } else if (kind === 'kaktus') {
-      if (performance.now() < blastReadyAt) return;
-      if (isRemote()) send({ t: 'blast' }); else localEngine.blast(localHuman);
+      if (isRemote()) send({ t: 'spikes', on: !p.spikes }); else localEngine.setSpikes(localHuman, !localHuman.spikes);
     }
   }
   powerBtn.addEventListener('click', e => { e.stopPropagation(); usePower(); powerBtn.blur(); });
