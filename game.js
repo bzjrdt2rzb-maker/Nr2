@@ -52,7 +52,7 @@
   const rbIndex = (x, y, t) => ((((x + y) * 3 + Math.floor(t * 24)) % HUES) + HUES) % HUES;
   const cellHash = (x, y) => (Math.imul(x, 73856093) ^ Math.imul(y, 19349663)) >>> 0;
   const isRb = p => FE.isRainbowName(p.name);
-  const SP_CODE = { einhorn: 1, kaktus: 2, mcqueen: 3 };
+  const SP_CODE = { einhorn: 1, kaktus: 2, mcqueen: 3, stein: 4 };
   const blasts = [];                // kleine Stachel-Effekte, wenn der Kaktus jemanden erwischt
 
   // ---------- Hilfsfunktionen ----------
@@ -587,8 +587,8 @@
   // ---------- Gebiets-Muster für Geheimnamen ----------
   // Kaktus: Sandwüste mit Kakteen und Blüten. Lightning McQueen: Rennstrecke.
   // Die Kacheln werden nur bei neuer Zellgröße neu gezeichnet und am Spielfeld ausgerichtet.
-  const SKIN_RGB = { 2: [242, 207, 134], 3: [63, 63, 70] };
-  const SKIN_TRAIL_RGB = { 2: [236, 214, 170], 3: [140, 140, 150] };
+  const SKIN_RGB = { 2: [242, 207, 134], 3: [63, 63, 70], 4: [148, 155, 168] };
+  const SKIN_TRAIL_RGB = { 2: [236, 214, 170], 3: [140, 140, 150], 4: [107, 114, 128] };
   const skinCache = { cell: 0 };
 
   function drawCactus(g, x, y, h) {
@@ -621,12 +621,12 @@
   }
 
   function makeSkinTile(kind, cell) {
-    const n = kind === 'kaktus' ? 6 : 8;           // Kachelgröße in Feldern
+    const n = kind === 'kaktus' ? 6 : kind === 'stein' ? 4 : 8;   // Kachelgröße in Feldern
     const T = Math.round(cell * n);
     const c = document.createElement('canvas');
     c.width = c.height = T;
     const g = c.getContext('2d');
-    let seed = kind === 'kaktus' ? 7 : 13;
+    let seed = kind === 'kaktus' ? 7 : kind === 'stein' ? 29 : 13;
     const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
     if (kind === 'kaktus') {
       g.fillStyle = '#f2cf86';
@@ -655,6 +655,30 @@
       drawFlower(g, cell * 4.7, cell * 4.7, cell * 0.22);
       drawFlower(g, cell * 0.7, cell * 0.8, cell * 0.16);
       drawFlower(g, cell * 3.2, cell * 5.5, cell * 0.14);
+    } else if (kind === 'stein') {
+      // Kopfsteinpflaster: Fugen dunkel, Steine in leicht unterschiedlichen Grautönen
+      g.fillStyle = '#4b5563';
+      g.fillRect(0, 0, T, T);
+      const greys = ['#9ca3af', '#a8afba', '#8f96a3', '#b4bac4', '#959cab'];
+      const sz = T / 4;
+      for (let row = 0; row < 4; row++) {
+        const shift = row % 2 ? sz / 2 : 0;
+        for (let col = -1; col < 4; col++) {
+          const x = col * sz + shift, y = row * sz;
+          const gap = cell * 0.08, w = sz - gap * 2, h = sz - gap * 2;
+          g.fillStyle = greys[Math.floor(rnd() * greys.length)];
+          g.beginPath();
+          g.roundRect ? g.roundRect(x + gap, y + gap, w, h, sz * 0.3) : g.rect(x + gap, y + gap, w, h);
+          g.fill();
+          g.fillStyle = 'rgba(255,255,255,.18)';
+          g.beginPath(); g.ellipse(x + sz * 0.38, y + sz * 0.32, sz * 0.22, sz * 0.1, -0.3, 0, Math.PI * 2); g.fill();
+          if (rnd() < 0.4) {
+            g.strokeStyle = 'rgba(55,65,81,.5)';
+            g.lineWidth = cell * 0.04;
+            g.beginPath(); g.moveTo(x + sz * 0.3, y + sz * 0.55); g.lineTo(x + sz * 0.5, y + sz * 0.7); g.lineTo(x + sz * 0.65, y + sz * 0.62); g.stroke();
+          }
+        }
+      }
     } else {
       // Asphalt mit Körnung
       g.fillStyle = '#3f3f46';
@@ -688,7 +712,7 @@
   }
 
   function skinPattern(kind, cell, ox, oy) {
-    if (skinCache.cell !== cell) { skinCache.cell = cell; skinCache.kaktus = null; skinCache.mcqueen = null; }
+    if (skinCache.cell !== cell) { skinCache.cell = cell; skinCache.kaktus = null; skinCache.mcqueen = null; skinCache.stein = null; }
     if (!skinCache[kind]) skinCache[kind] = ctx.createPattern(makeSkinTile(kind, cell), 'repeat');
     const pat = skinCache[kind];
     if (pat.setTransform && typeof DOMMatrix !== 'undefined') pat.setTransform(new DOMMatrix([1, 0, 0, 1, ox, oy]));
@@ -883,6 +907,7 @@
       if (sp === 1) { g.top = rbTop; g.dark = rbDark; }
       else if (sp === 2) { g.top = skinPattern('kaktus', cell, ox, oy); g.dark = '#c9974a'; }
       else if (sp === 3) { g.top = skinPattern('mcqueen', cell, ox, oy); g.dark = '#1f1f23'; }
+      else if (sp === 4) { g.top = skinPattern('stein', cell, ox, oy); g.dark = '#374151'; }
       traceInto(g.path, smoothField(owner, o, xa, ya, ww, wh), ww, wh, xa, ya, 0.4, cell, ox, oy);
       groups.push(g);
     }
@@ -910,12 +935,31 @@
         ctx.lineWidth = Math.max(1.5, cell * 0.1);
         ctx.strokeStyle = 'rgba(180, 120, 50, .55)';
         ctx.stroke(g.path);
+      } else if (g.sp === 4) {
+        ctx.lineWidth = Math.max(1.5, cell * 0.12);
+        ctx.strokeStyle = '#374151';
+        ctx.stroke(g.path);
       }
     }
 
     // Spuren als weiche Schläuche
     for (const t of trailIds) {
       const path = new Path2D();
+      if (spFlag[t] === 4) {
+        // Stein: doppelt so breite, massive Steinmauer
+        traceInto(path, smoothField(trailMap, t, xa, ya, ww, wh), ww, wh, xa, ya, 0.2, cell, ox, oy);
+        ctx.save();
+        ctx.translate(0, depth);
+        ctx.fillStyle = '#374151';
+        ctx.fill(path, 'evenodd');
+        ctx.restore();
+        ctx.fillStyle = skinPattern('stein', cell, ox, oy);
+        ctx.fill(path, 'evenodd');
+        ctx.lineWidth = Math.max(1.5, cell * 0.1);
+        ctx.strokeStyle = '#374151';
+        ctx.stroke(path);
+        continue;
+      }
       traceInto(path, smoothField(trailMap, t, xa, ya, ww, wh), ww, wh, xa, ya, 0.5, cell, ox, oy);
       ctx.fillStyle = rbFlag[t] ? rbTrail : spFlag[t] === 2 ? 'rgba(222, 178, 96, .75)' : spFlag[t] === 3 ? 'rgba(63, 63, 70, .6)' : colorOf(players[t]).trail;
       ctx.fill(path, 'evenodd');
@@ -994,7 +1038,21 @@
         ctx.restore();
       }
 
-      // Körper: runde Kugel mit Unterkante, weißem Rand und Glanzlicht
+      // Körper: runde Kugel (Stein: Felsbrocken) mit Unterkante, Rand und Glanzlicht
+      const sp = spFlag[p.id];
+      const bodyPath = y => {
+        ctx.beginPath();
+        if (sp === 4) {
+          const f = [1.08, 0.92, 1.04, 0.95, 1.1, 0.9, 1.02, 0.96, 1.06];
+          for (let k = 0; k < f.length; k++) {
+            const a = (k / f.length) * Math.PI * 2 - 0.3;
+            const r2 = hr * 1.05 * f[k];
+            if (k === 0) ctx.moveTo(sx + Math.cos(a) * r2, y + Math.sin(a) * r2);
+            else ctx.lineTo(sx + Math.cos(a) * r2, y + Math.sin(a) * r2);
+          }
+          ctx.closePath();
+        } else ctx.arc(sx, y, hr, 0, Math.PI * 2);
+      };
       let fill;
       if (rb) {
         const k = rbIndex(Math.floor(p.rx), Math.floor(p.ry), rt);
@@ -1006,15 +1064,25 @@
         ctx.fillStyle = col.dark;
         fill = col.base;
       }
-      ctx.beginPath(); ctx.arc(sx, sy + depth, hr, 0, Math.PI * 2); ctx.fill();
+      if (sp === 4) { ctx.fillStyle = '#374151'; fill = '#9ca3af'; }
+      bodyPath(sy + depth); ctx.fill();
       ctx.fillStyle = fill;
-      ctx.beginPath(); ctx.arc(sx, sy, hr, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = '#fff';
+      bodyPath(sy); ctx.fill();
+      ctx.strokeStyle = sp === 4 ? '#374151' : '#fff';
       ctx.lineWidth = Math.max(1.5, cell * 0.09);
+      ctx.lineJoin = 'round';
       ctx.stroke();
       ctx.fillStyle = 'rgba(255,255,255,.28)';
       ctx.beginPath(); ctx.ellipse(sx - hr * 0.3, sy - hr * 0.38, hr * 0.42, hr * 0.24, -0.5, 0, Math.PI * 2); ctx.fill();
-      const sp = spFlag[p.id];
+      if (sp === 4) {
+        // Risse im Felsbrocken
+        ctx.strokeStyle = 'rgba(55, 65, 81, .75)';
+        ctx.lineWidth = Math.max(1, cell * 0.05);
+        ctx.beginPath();
+        ctx.moveTo(sx + hr * 0.55, sy - hr * 0.55); ctx.lineTo(sx + hr * 0.3, sy - hr * 0.2); ctx.lineTo(sx + hr * 0.45, sy + hr * 0.05);
+        ctx.moveTo(sx - hr * 0.7, sy + hr * 0.3); ctx.lineTo(sx - hr * 0.4, sy + hr * 0.5);
+        ctx.stroke();
+      }
       if (sp === 2) {
         // Kaktus: Rillen und Stacheln rundherum
         ctx.save();
@@ -1240,7 +1308,8 @@
       if (statsEl.dataset.bg !== bgc) { statsEl.dataset.bg = bgc; statsEl.style.background = bgc; }
     }
     // Spezialkraft-Knopf für Geheimnamen
-    const kind = ui === 'play' && p && p.alive ? FE.specialOf(p.name) : null;
+    let kind = ui === 'play' && p && p.alive ? FE.specialOf(p.name) : null;
+    if (kind === 'stein') kind = null;   // Stein braucht keinen Knopf – seine Kraft wirkt immer
     if (powerBtn.hidden === !!kind) powerBtn.hidden = !kind;
     if (kind) {
       let label, on = false;
@@ -1350,7 +1419,7 @@
 
   function updateNameFx() {
     const kind = FE.specialOf(nameInput.value);
-    for (const k of ['einhorn', 'kaktus', 'mcqueen']) nameInput.classList.toggle(k, kind === k);
+    for (const k of ['einhorn', 'kaktus', 'mcqueen', 'stein']) nameInput.classList.toggle(k, kind === k);
   }
 
   function showGameOver() {

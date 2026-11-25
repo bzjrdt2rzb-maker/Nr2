@@ -45,13 +45,14 @@
   };
 
   /**
-   * Geheimnamen: 'einhorn' (Regenbogen + unsterblich), 'kaktus' (Stachelangriff),
-   * 'mcqueen' (Lightning McQueen: Turbo). Groß-/Kleinschreibung und Leerzeichen egal.
+   * Geheimnamen: 'einhorn' (Regenbogen + unsterblich), 'kaktus' (Stacheln),
+   * 'mcqueen' (Lightning McQueen: Turbo), 'stein' (unzerstörbare Spur). Groß-/Kleinschreibung und Leerzeichen egal.
    */
   function specialOf(name) {
     const n = String(name == null ? '' : name).toLowerCase().replace(/\s+/g, ' ').trim();
     if (n === 'einhorn') return 'einhorn';
     if (n === 'kaktus') return 'kaktus';
+    if (n === 'stein') return 'stein';
     if (n === 'lightning mcqueen' || n === 'lightningmcqueen') return 'mcqueen';
     return null;
   }
@@ -71,6 +72,7 @@
     const sp = specialOf(name);
     if (sp === 'kaktus') return 4;
     if (sp === 'mcqueen') return 0;
+    if (sp === 'stein') return 12;
     return color;
   }
 
@@ -139,7 +141,7 @@
         id, isBot, name: '', color: 0, alive: false,
         x: 0, y: 0, cx: 0, cy: 0, angle: 0, target: 0,
         trail: [], count: 0, bx0: W, by0: H, bx1: -1, by1: -1,
-        kills: 0, bestPct: 0, spawnTime: 0, respawnAt: 0, invincible: false, boost: false, spikes: false,
+        kills: 0, bestPct: 0, spawnTime: 0, respawnAt: 0, invincible: false, boost: false, spikes: false, stone: false,
         ai: { mode: 'home', plan: null, home: null, homeTimer: 0, tick: 0, aggr: Math.random(), hunt: -1, huntUntil: 0 },
       };
     }
@@ -291,7 +293,15 @@
           kill(p, p, 'self');
           return;
         }
-        if (players[t]) kill(players[t], p, 'trail');
+        const tp = players[t];
+        if (tp && tp.stone) {
+          // Die Spur vom Stein ist unzerstörbar: Man fährt einfach darüber, niemand stirbt,
+          // und die Steinspur bleibt liegen. Die eigene Spur zählt hier trotzdem mit.
+          if (owner[i] === p.id) { if (p.trail.length) capture(p); }
+          else p.trail.push(i);
+          return;
+        }
+        if (tp) kill(tp, p, 'trail');
       }
       if (owner[i] === p.id) {
         if (p.trail.length) capture(p);
@@ -429,7 +439,7 @@
       for (let y = Math.max(0, p.cy - r); y <= Math.min(H - 1, p.cy + r); y++)
         for (let x = Math.max(0, p.cx - r); x <= Math.min(W - 1, p.cx + r); x++) {
           const t = trailMap[y * W + x];
-          if (!t || t === p.id || (players[t] && players[t].invincible)) continue;
+          if (!t || t === p.id || (players[t] && (players[t].invincible || players[t].stone))) continue;
           const d = (x - p.cx) ** 2 + (y - p.cy) ** 2;
           if (d < bd) { bd = d; best = y * W + x; }
         }
@@ -634,6 +644,7 @@
       if (sp !== 'einhorn') p.invincible = false;
       if (sp !== 'mcqueen') p.boost = false;
       p.spikes = sp === 'kaktus';             // Kaktus startet mit ausgefahrenen Stacheln
+      p.stone = sp === 'stein';               // Stein: unzerstörbare Spur
       // Bots mit derselben Farbe bekommen eine andere
       for (const q of players) if (q && q.isBot && q.color === p.color) giveBotIdentity(q);
       spawn(p);

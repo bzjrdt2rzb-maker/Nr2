@@ -34,6 +34,7 @@ prüft der Server bzw. Gastgeber den Namen – wer anders heißt, kann die Kräf
 | **Einhorn** 🦄 | Glitzerndes Regenbogen-Gebiet, Horn | **Unsterblich** an/aus |
 | **Kaktus** 🌵 | Grün mit Stacheln und Blüte, Gebiet wird zur Sandwüste mit Kakteen und Kaktusblüten | **Stacheln** an/aus – beim Start automatisch an. Solange sie an sind, wird jeder automatisch ausgeschaltet, der in den Umkreis von 6 Feldern kommt (grüne Zone mit Stachelkranz) |
 | **Lightning McQueen** ⚡ | Rot mit Blitz, Gebiet wird zur Rennstrecke mit rot-weißen Randsteinen, Flammen beim Turbo | **Turbo** an/aus – 5× so schnell (Kurven bleiben gleich eng). Außerdem kann McQueen immer gefahrlos über die eigene Spur fahren |
+| **Stein** 🪨 | Grauer Felsbrocken, Gebiet wird zu Kopfsteinpflaster, Spur ist eine doppelt so breite Steinmauer | *kein Knopf* – die **Spur ist unzerstörbar**: Wer darüberfährt, schneidet den Stein nicht ab (und stirbt auch selbst nicht daran) |
 
 Einhorn, Kaktus und McQueen schalten sich nicht gegenseitig aus: Ein unsterbliches Einhorn übersteht auch die Kaktus-Stacheln.
 
