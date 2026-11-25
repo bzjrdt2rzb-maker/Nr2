@@ -340,7 +340,7 @@
       checkWipeouts(p);
     }
 
-    // Aktive Kaktus-Stacheln schalten jeden aus, der in den Umkreis kommt
+    // Kaktus-Stacheln (immer aktiv) schalten jeden aus, der in den Umkreis kommt
     function cactusSpikes() {
       for (const p of players) {
         if (!p || !p.alive || !p.spikes) continue;
@@ -633,7 +633,7 @@
       const sp = specialOf(p.name);
       if (sp !== 'einhorn') p.invincible = false;
       if (sp !== 'mcqueen') p.boost = false;
-      if (sp !== 'kaktus') p.spikes = false;
+      p.spikes = sp === 'kaktus';             // Kaktus-Stacheln sind immer aktiv
       // Bots mit derselben Farbe bekommen eine andere
       for (const q of players) if (q && q.isBot && q.color === p.color) giveBotIdentity(q);
       spawn(p);
@@ -657,17 +657,6 @@
       return true;
     };
 
-    /** Stacheln an/aus – nur für Spieler namens "Kaktus". Solange sie an sind, wird jeder
-        im Umkreis automatisch ausgeschaltet (siehe cactusSpikes). */
-    eng.setSpikes = function (p, on) {
-      if (!p || p.isBot || players[p.id] !== p || specialOf(p.name) !== 'kaktus') return false;
-      on = !!on;
-      if (p.spikes === on) return true;
-      p.spikes = on;
-      emit({ k: 'spikes', id: p.id, on: on ? 1 : 0, n: p.name });
-      if (on) cactusSpikes();
-      return true;
-    };
 
     /** Unsterblichkeit an/aus – nur für Spieler namens "Einhorn". */
     eng.setInvincible = function (p, on) {
@@ -786,8 +775,6 @@
           engine.setInvincible(c.player, !!msg.on);
         } else if (msg.t === 'boost' && c.player) {
           engine.setBoost(c.player, !!msg.on);
-        } else if (msg.t === 'spikes' && c.player) {
-          engine.setSpikes(c.player, !!msg.on);
         }
       },
       // Nach jedem Simulationsschritt aufrufen; schickt 20x pro Sekunde ein Update.

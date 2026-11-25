@@ -25,14 +25,14 @@ also auch für die Bots. Bei hohem Tempo zoomt die Ansicht etwas heraus, damit d
 ### Geheimnamen
 
 Bestimmte Namen geben deiner Figur ein eigenes Aussehen und eine Spezialkraft. Während des Spiels erscheint
-dann unten links ein Knopf dafür (am Computer auch Taste **U** oder **Leertaste**). Groß- und Kleinschreibung
+dann (außer beim Kaktus) unten links ein Knopf dafür (am Computer auch Taste **U** oder **Leertaste**). Groß- und Kleinschreibung
 ist egal. Das gilt in allen Modi, und Mitspieler sehen Aussehen und Effekte ebenfalls. Im Mehrspieler-Modus
 prüft der Server bzw. Gastgeber den Namen – wer anders heißt, kann die Kräfte nicht benutzen.
 
 | Name | Aussehen | Knopf |
 | --- | --- | --- |
 | **Einhorn** 🦄 | Glitzerndes Regenbogen-Gebiet, Horn | **Unsterblich** an/aus |
-| **Kaktus** 🌵 | Grün mit Stacheln und Blüte, Gebiet wird zur Sandwüste mit Kakteen und Kaktusblüten | **Stacheln** an/aus – solange sie an sind, wird jeder automatisch ausgeschaltet, der in den Umkreis von 6 Feldern kommt (grüne Zone mit Stachelkranz) |
+| **Kaktus** 🌵 | Grün mit Stacheln und Blüte, Gebiet wird zur Sandwüste mit Kakteen und Kaktusblüten | *kein Knopf* – die **Stacheln sind immer aktiv**: Jeder, der in den Umkreis von 6 Feldern kommt, wird automatisch ausgeschaltet (grüne Zone mit Stachelkranz) |
 | **Lightning McQueen** ⚡ | Rot mit Blitz, Gebiet wird zur Rennstrecke mit rot-weißen Randsteinen, Flammen beim Turbo | **Turbo** an/aus – 5× so schnell (Kurven bleiben gleich eng). Außerdem kann McQueen immer gefahrlos über die eigene Spur fahren |
 
 Einhorn, Kaktus und McQueen schalten sich nicht gegenseitig aus: Ein unsterbliches Einhorn übersteht auch die Kaktus-Stacheln.
