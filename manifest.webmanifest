@@ -1,0 +1,12 @@
+{
+  "name": "Farbrevier",
+  "short_name": "Farbrevier",
+  "start_url": "./",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#262b38",
+  "theme_color": "#262b38",
+  "icons": [
+    { "src": "icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

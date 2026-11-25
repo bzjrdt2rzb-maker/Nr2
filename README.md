@@ -15,6 +15,12 @@ python3 -m http.server 8000
 
 Über GitHub Pages lässt sich das Spiel direkt online stellen (Settings → Pages → Branch auswählen).
 
+### Als App auf dem Home-Bildschirm
+
+Die Seite bringt App-Icon und Manifest mit. Auf dem iPhone in Safari: Teilen-Symbol → „Zum Home-Bildschirm“.
+Auf Android in Chrome: Menü (⋮) → „Zum Startbildschirm hinzufügen“. Das Spiel startet dann im Vollbild
+ohne Browserleiste.
+
 ## Regeln
 
 - Du startest mit einem kleinen Gebiet in deiner Farbe.
@@ -46,3 +52,4 @@ nach ein paar Sekunden mit neuem Namen zurück.
 - `index.html` – Seite und Menüs
 - `style.css` – Aussehen der Oberfläche
 - `game.js` – Spiellogik, Bot-KI und Darstellung
+- `manifest.webmanifest`, `icon.png` – App-Icon und Einstellungen für den Home-Bildschirm

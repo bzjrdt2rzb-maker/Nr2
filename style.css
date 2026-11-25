@@ -2,6 +2,7 @@
 
 html, body {
   margin: 0;
+  color-scheme: light;
   height: 100%;
   overflow: hidden;
   background: #262b38;
@@ -19,8 +20,8 @@ html, body {
 /* HUD */
 #hud {
   position: fixed;
-  left: 16px;
-  bottom: 16px;
+  left: calc(16px + env(safe-area-inset-left, 0px));
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
   pointer-events: none;
 }
 #stats {
@@ -34,8 +35,8 @@ html, body {
 
 #leaderboard {
   position: fixed;
-  right: 16px;
-  top: 16px;
+  right: calc(16px + env(safe-area-inset-right, 0px));
+  top: calc(16px + env(safe-area-inset-top, 0px));
   min-width: 190px;
   background: rgba(20, 24, 34, .72);
   color: #fff;
@@ -57,8 +58,8 @@ html, body {
 
 #minimap {
   position: fixed;
-  right: 16px;
-  bottom: 16px;
+  right: calc(16px + env(safe-area-inset-right, 0px));
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
   width: 160px;
   height: 160px;
   border-radius: 10px;
@@ -71,7 +72,7 @@ html, body {
 #feed {
   position: fixed;
   left: 50%;
-  top: 14px;
+  top: calc(14px + env(safe-area-inset-top, 0px));
   transform: translateX(-50%);
   display: flex;
   flex-direction: column;
@@ -191,10 +192,12 @@ h2 { margin: 0 0 8px; font-size: 30px; }
 #overReason { color: #5b6475; margin: 0; }
 
 @media (max-width: 600px) {
-  #leaderboard { min-width: 140px; font-size: 12px; right: 8px; top: 8px; padding: 6px 8px; }
-  #minimap { width: 100px; height: 100px; right: 8px; bottom: 8px; }
-  #hud { left: 8px; bottom: 8px; }
+  #leaderboard { min-width: 140px; font-size: 12px; padding: 6px 8px;
+    right: calc(8px + env(safe-area-inset-right, 0px)); top: calc(8px + env(safe-area-inset-top, 0px)); }
+  #minimap { width: 100px; height: 100px;
+    right: calc(8px + env(safe-area-inset-right, 0px)); bottom: calc(8px + env(safe-area-inset-bottom, 0px)); }
+  #hud { left: calc(8px + env(safe-area-inset-left, 0px)); bottom: calc(8px + env(safe-area-inset-bottom, 0px)); }
   #stats .big { font-size: 22px; }
-  #feed { top: auto; bottom: 120px; }
+  #feed { top: auto; bottom: calc(120px + env(safe-area-inset-bottom, 0px)); }
   h1 { font-size: 36px; }
 }
