@@ -67,7 +67,9 @@
 
   // ---------- Zustand ----------
   const localEngine = FE.createEngine({ targetPlayers: 11 });
-  const remote = { owner: new Uint8Array(N), trailMap: new Uint8Array(N), players: [null], time: 0, timeAt: 0 };
+  const remote = { owner: new Uint8Array(N), trailMap: new Uint8Array(N), players: [null], time: 0, timeAt: 0, speedMul: 1 };
+  const curSpeed = () => (isRemote() ? remote.speedMul : localEngine.speedMul);
+  const fmtSpeed = m => String(m).replace('.', ',') + '×';
   let world = localEngine;          // was gerade gezeichnet wird: { owner, trailMap, players }
   let session = { kind: 'solo' };
   let localHuman = null;
@@ -75,6 +77,8 @@
   let ui = 'menu';                  // menu | connecting | play | dead
   let paused = false;
   let humanColor = 7;
+  let speedMul = 1;                 // im Menü gewähltes Tempo (allein + eigener Raum)
+  let zoom = 1;                     // bei hohem Tempo etwas herauszoomen
   let myTarget = 0, lastSentTarget = null, predAngle = 0;
   let myBest = 0;
   let deathCam = null;
@@ -183,7 +187,7 @@
       p.sx = x / 100; p.sy = y / 100; p.sa = a / 1000;
       const was = p.alive;
       p.alive = !!alive;
-      if ((!was && p.alive) || Math.hypot(p.x - p.sx, p.y - p.sy) > 4) {
+      if ((!was && p.alive) || Math.hypot(p.x - p.sx, p.y - p.sy) > 4 + SPEED * remote.speedMul * 0.15) {
         p.x = p.sx; p.y = p.sy; p.angle = p.sa;
         if (id === myId) { predAngle = p.sa; myTarget = p.sa; lastSentTarget = p.sa; snapCam = true; }
       }
@@ -203,6 +207,7 @@
     } else if (msg.t === 'full') {
       FE.rleDecode(msg.o, remote.owner);
       FE.rleDecode(msg.tr, remote.trailMap);
+      remote.speedMul = Number(msg.sp) || 1;
       applyMeta(msg.m);
       applyPlayers(msg.p);
       remote.time = msg.time; remote.timeAt = performance.now();
@@ -213,6 +218,7 @@
         const i = c[k];
         if (i >= 0 && i < N) { remote.owner[i] = c[k + 1]; remote.trailMap[i] = c[k + 2]; }
       }
+      if (msg.sp) remote.speedMul = Number(msg.sp) || 1;
       if (msg.m) applyMeta(msg.m);
       if (msg.p) applyPlayers(msg.p);
       remote.time = msg.time; remote.timeAt = performance.now();
@@ -223,17 +229,18 @@
   }
 
   function updateRemoteDisplay(dt) {
-    predAngle = FE.wrapAngle(FE.turnToward(predAngle, myTarget, TURN * dt));
+    const mul = remote.speedMul;
+    predAngle = FE.wrapAngle(FE.turnToward(predAngle, myTarget, TURN * mul * dt));
     const now = performance.now();
     const k = Math.min(1, dt * 14);
     for (const p of remote.players) {
       if (!p || !p.alive) continue;
       const age = Math.min(0.2, (now - p.snapAt) / 1000);
       const a = p.id === myId ? predAngle : p.sa;
-      const tx = p.sx + Math.cos(a) * SPEED * age, ty = p.sy + Math.sin(a) * SPEED * age;
+      const tx = p.sx + Math.cos(a) * SPEED * mul * age, ty = p.sy + Math.sin(a) * SPEED * mul * age;
       p.x += (tx - p.x) * k;
       p.y += (ty - p.y) * k;
-      p.angle = p.id === myId ? predAngle : FE.wrapAngle(FE.turnToward(p.angle, p.sa, 12 * dt));
+      p.angle = p.id === myId ? predAngle : FE.wrapAngle(FE.turnToward(p.angle, p.sa, 12 * mul * dt));
     }
   }
 
@@ -291,6 +298,7 @@
     const prof = profile();
     leaveSession();
     session = { kind: 'solo' };
+    localEngine.setSpeed(speedMul);
     createLocalHuman(prof);
     enterPlay();
   }
@@ -383,6 +391,7 @@
     peer.on('open', () => {
       opened = true;
       setBusy(false);
+      localEngine.setSpeed(speedMul);
       const hub = FE.createHub(localEngine, { maxHumans: 12 });
       session = { kind: 'host', peer, hub, code, conns: new Map() };
       createLocalHuman(prof);
@@ -537,6 +546,7 @@
   }
   window.addEventListener('resize', resize);
   resize();
+  const cellNow = () => Math.max(6, Math.round(cellPx / zoom));   // ganze Pixel → keine Lücken zwischen Zeilen
 
   function rrect(x, y, w, h, r) {
     ctx.beginPath();
@@ -559,7 +569,7 @@
   }
 
   function render(rt) {
-    const cell = cellPx;
+    const cell = cellNow();
     const { owner, trailMap, players } = world;
     const ox = Math.round(cw / 2 - cam.x * cell), oy = Math.round(ch / 2 - cam.y * cell);
     viewOx = ox; viewOy = oy;
@@ -793,7 +803,7 @@
     mctx.imageSmoothingEnabled = false;
     mctx.clearRect(0, 0, mw, mh);
     mctx.drawImage(miniOff, 0, 0, mw, mh);
-    const cell = cellPx;
+    const cell = cellNow();
     mctx.strokeStyle = 'rgba(31,36,48,.5)';
     mctx.lineWidth = 1;
     mctx.strokeRect((-viewOx / cell) * mw / W, (-viewOy / cell) * mh / H, (cw / cell) * mw / W, (ch / cell) * mh / H);
@@ -855,12 +865,12 @@
     for (const p of world.players) if (p && !p.isBot) humans++;
     let html;
     if (session.kind === 'host') {
-      html = `<div><b>Raum ${session.code}</b> · ${humans} Spieler</div>` +
+      html = `<div><b>Raum ${session.code}</b> · ${humans} Spieler · ${fmtSpeed(curSpeed())}</div>` +
         '<button id="copyLinkBtn" type="button">Einladungslink kopieren</button>';
     } else if (session.kind === 'guest') {
-      html = `<div><b>Raum ${esc(session.code)}</b> · ${humans} Spieler</div>`;
+      html = `<div><b>Raum ${esc(session.code)}</b> · ${humans} Spieler · ${fmtSpeed(curSpeed())}</div>`;
     } else {
-      html = `<div><b>Online</b> · ${humans} Spieler</div>`;
+      html = `<div><b>Online</b> · ${humans} Spieler · ${fmtSpeed(curSpeed())}</div>`;
     }
     if (roomEl.dataset.html !== html) {
       roomEl.innerHTML = html;
@@ -914,6 +924,26 @@
       b.addEventListener('click', () => { humanColor = c.i; store.set('farbrevier.color', String(c.i)); buildSwatches(); });
       el.appendChild(b);
     });
+  }
+
+  function buildSpeedBtns() {
+    const el = $('speedBtns');
+    el.innerHTML = '';
+    for (const m of FE.SPEEDS) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = fmtSpeed(m);
+      b.setAttribute('role', 'radio');
+      b.setAttribute('aria-checked', String(m === speedMul));
+      if (m === speedMul) b.className = 'sel';
+      b.addEventListener('click', () => {
+        speedMul = m;
+        store.set('farbrevier.speed', String(m));
+        if (session.kind === 'solo') localEngine.setSpeed(m);   // Vorschau im Hintergrund
+        buildSpeedBtns();
+      });
+      el.appendChild(b);
+    }
   }
 
   function updateNameFx() {
@@ -975,7 +1005,7 @@
   function aimAt(clientX, clientY) {
     const p = me();
     if (ui !== 'play' || paused || !p || !p.alive) return;
-    const hx = (viewOx + p.rx * cellPx) / dpr, hy = (viewOy + p.ry * cellPx) / dpr;
+    const hx = (viewOx + p.rx * cellNow()) / dpr, hy = (viewOy + p.ry * cellNow()) / dpr;
     const dx = clientX - hx, dy = clientY - hy;
     if (dx * dx + dy * dy < 16) return;
     setMyTarget(Math.atan2(dy, dx));
@@ -1017,6 +1047,10 @@
   nameInput.value = store.get('farbrevier.name') || '';
   updateNameFx();
   buildSwatches();
+  const savedSpeed = parseFloat(store.get('farbrevier.speed'));
+  if (FE.SPEEDS.indexOf(savedSpeed) >= 0) speedMul = savedSpeed;
+  localEngine.setSpeed(speedMul);
+  buildSpeedBtns();
   showRecord();
 
   if (NO_MP) {
@@ -1052,7 +1086,7 @@
       const alpha = paused ? 1 : Math.min(1, acc / FE.STEP);
       for (const q of localEngine.players) {
         if (!q) continue;
-        if (q.px === undefined || Math.abs(q.x - q.px) + Math.abs(q.y - q.py) > 2) { q.rx = q.x; q.ry = q.y; q.ra = q.angle; continue; }
+        if (q.px === undefined || Math.abs(q.x - q.px) + Math.abs(q.y - q.py) > 2 + 3 * SPEED * localEngine.speedMul * FE.STEP) { q.rx = q.x; q.ry = q.y; q.ra = q.angle; continue; }
         q.rx = q.px + (q.x - q.px) * alpha;
         q.ry = q.py + (q.y - q.py) * alpha;
         q.ra = q.pa + FE.wrapAngle(q.angle - q.pa) * alpha;
@@ -1090,9 +1124,14 @@
       if (leader) { tx = leader.rx; ty = leader.ry; }
     }
     if (snapCam && ui === 'play' && p && p.alive) { cam.x = tx; cam.y = ty; snapCam = false; }
-    const f = Math.min(1, dt * (ui === 'play' ? 14 : 2));
-    cam.x += (tx - cam.x) * f;
-    cam.y += (ty - cam.y) * f;
+    if (ui === 'play' && p && p.alive) { cam.x = tx; cam.y = ty; }   // Kamera klebt an der eigenen Figur
+    else {
+      const f = Math.min(1, dt * 2);
+      cam.x += (tx - cam.x) * f;
+      cam.y += (ty - cam.y) * f;
+    }
+    const zTarget = 1 + 0.22 * Math.log2(curSpeed());
+    zoom += (zTarget - zoom) * Math.min(1, dt * 3);
 
     const rt = now / 1000;
     render(rt);

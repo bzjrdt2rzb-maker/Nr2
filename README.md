@@ -12,6 +12,16 @@ Ein Browser-Spiel, in dem du Gebiet eroberst – allein gegen Bots oder mit Freu
 
 In allen Modi füllen Bots die Welt auf, damit immer etwas los ist. Kommen mehr Menschen dazu, verschwinden entsprechend Bots.
 
+### Tempo
+
+Im Menü lässt sich das Tempo vor dem Spiel wählen: **1×, 1,25×, 1,5×, 2×, 2,5×, 5× oder 10×**. Es gilt für alle Figuren,
+also auch für die Bots. Bei hohem Tempo zoomt die Ansicht etwas heraus, damit du mehr siehst.
+
+- **Allein spielen:** dein gewähltes Tempo
+- **Raum:** das Tempo des Gastgebers gilt für alle im Raum
+- **Online-Server:** feste Einstellung des Servers über die Umgebungsvariable `SPEED` (Standard `1`),
+  bei Render unter *Environment* einstellbar
+
 ### Einhorn-Modus 🦄
 
 Heißt ein Spieler **Einhorn**, wird sein Gebiet zum glitzernden Regenbogen, und seine Figur bekommt ein Horn.

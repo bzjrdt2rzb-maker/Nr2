@@ -13,8 +13,10 @@
   'use strict';
 
   const W = 110, H = 110, N = W * H;
-  const SPEED = 9.5;          // Zellen pro Sekunde
-  const TURN = 7.5;           // max. Drehgeschwindigkeit (rad/s) – Wenderadius bleibt gleich
+  const SPEED = 11;           // Zellen pro Sekunde bei Tempo 1×
+  const TURN = 8.7;           // max. Drehgeschwindigkeit (rad/s) bei Tempo 1× – Wenderadius ca. 1,3 Zellen
+  const SPEEDS = [1, 1.25, 1.5, 2, 2.5, 5, 10];  // wählbare Tempo-Stufen
+  const MAX_SUBSTEP = 0.45;   // max. Weg pro Teilschritt, damit keine Zelle übersprungen wird
   const STEP = 1 / 60;        // feste Simulationsschrittweite
   const START_R = 2.7;        // Radius des Startgebiets
   const COLOR_COUNT = 13;
@@ -97,6 +99,7 @@
       metaVersion: 0,
       onEvent: opts.onEvent || null,
       deathStats: {},
+      speedMul: 1,
     };
 
     function markDirty(i) {
@@ -232,11 +235,11 @@
     }
 
     // ---------- Bewegung & Eroberung ----------
-    function move(p) {
-      p.angle = wrapAngle(turnToward(p.angle, p.target, TURN * STEP));
+    function move(p, dist, turn) {
+      p.angle = wrapAngle(turnToward(p.angle, p.target, turn));
       const ox = p.x, oy = p.y;
-      const nx = Math.min(W - 0.001, Math.max(0.001, ox + Math.cos(p.angle) * SPEED * STEP));
-      const ny = Math.min(H - 0.001, Math.max(0.001, oy + Math.sin(p.angle) * SPEED * STEP));
+      const nx = Math.min(W - 0.001, Math.max(0.001, ox + Math.cos(p.angle) * dist));
+      const ny = Math.min(H - 0.001, Math.max(0.001, oy + Math.sin(p.angle) * dist));
       p.x = nx; p.y = ny;
       const ncx = nx | 0, ncy = ny | 0;
       if (ncx === p.cx && ncy === p.cy) return;
@@ -452,7 +455,7 @@
       return best;
     }
 
-    function botThink(p) {
+    function botThink(p, gdt) {
       const ai = p.ai, id = p.id;
       ai.tick++;
       const inHome = owner[p.cy * W + p.cx] === id;
@@ -460,7 +463,7 @@
 
       if (inHome) {
         if (ai.mode !== 'home') { ai.mode = 'home'; ai.plan = null; ai.homeTimer = rand(0.1, 0.9); }
-        ai.homeTimer -= STEP;
+        ai.homeTimer -= gdt;
         if (!ai.plan && ai.homeTimer <= 0) ai.plan = planExcursion(p);
         if (ai.plan) desired = ai.plan.out;
       } else {
@@ -539,15 +542,21 @@
     eng.step = function () {
       eng.time += STEP;
       eng.stepCount++;
-      for (let k = 1; k < players.length; k++) {
-        const p = players[k];
-        if (p && p.alive && p.isBot) botThink(p);
+      // Bei hohem Tempo in Teilschritte zerlegen, damit kein Feld übersprungen wird
+      const mul = eng.speedMul;
+      const n = Math.max(1, Math.ceil((SPEED * mul * STEP) / MAX_SUBSTEP));
+      const dist = (SPEED * mul * STEP) / n, turn = (TURN * mul * STEP) / n, gdt = (STEP * mul) / n;
+      for (let sub = 0; sub < n; sub++) {
+        for (let k = 1; k < players.length; k++) {
+          const p = players[k];
+          if (p && p.alive && p.isBot) botThink(p, gdt);
+        }
+        for (let k = 1; k < players.length; k++) {
+          const p = players[k];
+          if (p && p.alive) move(p, dist, turn);
+        }
+        headCollisions();
       }
-      for (let k = 1; k < players.length; k++) {
-        const p = players[k];
-        if (p && p.alive) move(p);
-      }
-      headCollisions();
       manageBots();
       for (const p of players) if (p && p.alive) p.bestPct = Math.max(p.bestPct, (p.count / N) * 100);
     };
@@ -597,6 +606,14 @@
       return true;
     };
 
+    /** Tempo-Stufe setzen (1, 1.25, 1.5, 2, 2.5, 5 oder 10). */
+    eng.setSpeed = function (mul) {
+      mul = Number(mul);
+      if (SPEEDS.indexOf(mul) < 0) mul = 1;
+      eng.speedMul = mul;
+      return mul;
+    };
+
     eng.setTarget = function (p, angle) {
       if (p && Number.isFinite(angle)) p.target = angle;
     };
@@ -627,7 +644,7 @@
 
     eng.fullSnapshot = function () {
       return {
-        t: 'full', W, H, time: Math.round(eng.time * 100) / 100,
+        t: 'full', W, H, time: Math.round(eng.time * 100) / 100, sp: eng.speedMul,
         o: rleEncode(owner), tr: rleEncode(trailMap),
         m: encodeMeta(), p: encodePlayers(),
       };
@@ -637,7 +654,7 @@
       const c = [];
       for (const i of eng.dirty) { c.push(i, owner[i], trailMap[i]); dirtyMark[i] = 0; }
       eng.dirty.length = 0;
-      const msg = { t: 'd', time: Math.round(eng.time * 100) / 100, c, p: encodePlayers() };
+      const msg = { t: 'd', time: Math.round(eng.time * 100) / 100, sp: eng.speedMul, c, p: encodePlayers() };
       if (eng.events.length) msg.ev = eng.events.splice(0);
       if (eng.metaVersion !== lastMetaSent) { msg.m = encodeMeta(); lastMetaSent = eng.metaVersion; }
       return msg;
@@ -708,7 +725,7 @@
   }
 
   return {
-    W, H, N, SPEED, TURN, STEP, COLOR_COUNT,
+    W, H, N, SPEED, TURN, STEP, COLOR_COUNT, SPEEDS,
     createEngine, createHub, isRainbowName, cleanName, wrapAngle, turnToward, rleDecode,
   };
 });

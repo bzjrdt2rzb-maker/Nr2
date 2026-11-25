@@ -28,6 +28,8 @@ const PUBLIC = new Set(['/index.html', '/style.css', '/game.js', '/engine.js', '
 
 // ---------- Spielwelt ----------
 const engine = FE.createEngine({ targetPlayers: 11 });
+// Tempo des Online-Servers: Umgebungsvariable SPEED (1, 1.25, 1.5, 2, 2.5, 5 oder 10)
+engine.setSpeed(process.env.SPEED || 1);
 engine.prewarm(20);
 const hub = FE.createHub(engine, { maxHumans: MAX_HUMANS });
 
