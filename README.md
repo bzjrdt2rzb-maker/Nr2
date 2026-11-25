@@ -37,7 +37,11 @@ prüft der Server bzw. Gastgeber den Namen – wer anders heißt, kann die Kräf
 | **Stein** 🪨 | Grauer Felsbrocken, Gebiet wird zu Kopfsteinpflaster, Spur ist eine doppelt so breite Steinmauer | *kein Knopf* – die **Spur ist unzerstörbar**: Wer darüberfährt, schneidet den Stein nicht ab (und stirbt auch selbst nicht daran) |
 | **Dieb** 🦹 | Figur mit schwarzer Ganovenmaske, Gebiet voller Goldmünzen und Edelsteine | *kein Knopf* – schaltet der Dieb jemanden aus, **klaut er dessen ganzes Gebiet** („+x % geklaut!“) statt dass es verschwindet |
 
-Einhorn, Kaktus und McQueen schalten sich nicht gegenseitig aus: Ein unsterbliches Einhorn übersteht auch die Kaktus-Stacheln.
+**Schutz nach Abschuss:** Alle fünf Geheimfiguren sind nach jedem Abschuss (Spur abgeschnitten, Frontal-Zusammenstoß,
+Kaktus-Stacheln, Gebiet komplett erobert) **5 Sekunden lang unsterblich**. Eine cyanfarbene Schutzblase mit ablaufendem
+Ring zeigt allen, wie lange der Schutz noch hält. Wird in der Zeit das ganze Gebiet erobert, gibt es ein neues Startgebiet.
+
+Ein unsterbliches Einhorn übersteht auch die Kaktus-Stacheln.
 
 #### Einhorn im Detail
 

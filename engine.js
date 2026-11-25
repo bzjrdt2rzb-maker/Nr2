@@ -31,6 +31,7 @@
   // Geheimnamen mit Spezialkraft
   const BOOST = 5;            // Turbo von Lightning McQueen
   const SPIKE_RADIUS = 6;     // Reichweite der Kaktus-Stacheln (Felder)
+  const SHIELD_TIME = 5;      // Sekunden Unsterblichkeit für Geheimfiguren nach einem Abschuss
 
   const rand = (a, b) => a + Math.random() * (b - a);
   const randi = (a, b) => Math.floor(rand(a, b + 1));
@@ -143,7 +144,7 @@
         id, isBot, name: '', color: 0, alive: false,
         x: 0, y: 0, cx: 0, cy: 0, angle: 0, target: 0,
         trail: [], count: 0, bx0: W, by0: H, bx1: -1, by1: -1,
-        kills: 0, bestPct: 0, spawnTime: 0, respawnAt: 0, invincible: false, boost: false, spikes: false, stone: false, thief: false,
+        kills: 0, bestPct: 0, spawnTime: 0, respawnAt: 0, invincible: false, boost: false, spikes: false, stone: false, thief: false, shieldUntil: 0,
         ai: { mode: 'home', plan: null, home: null, homeTimer: 0, tick: 0, aggr: Math.random(), hunt: -1, huntUntil: 0 },
       };
     }
@@ -224,7 +225,7 @@
     function checkWipeouts(by) {
       for (const q of players) {
         if (!q || !q.alive || q.count > 0) continue;
-        if (q.invincible) rehome(q);
+        if (q.invincible || eng.time < q.shieldUntil) rehome(q);
         else if (q !== by) kill(q, by, 'wiped');
       }
     }
@@ -242,7 +243,7 @@
 
     function kill(p, killer, reason) {
       if (!p.alive) return;
-      if (p.invincible && reason !== 'leave') return;
+      if ((p.invincible || eng.time < p.shieldUntil) && reason !== 'leave') return;
       p.alive = false;
       for (const i of p.trail) if (trailMap[i] === p.id) setTrail(i, 0);
       p.trail = [];
@@ -258,7 +259,14 @@
         }
       p.count = 0;
       eng.deathStats[reason] = (eng.deathStats[reason] || 0) + 1;
-      if (killer && killer !== p) killer.kills++;
+      if (killer && killer !== p) {
+        killer.kills++;
+        // Geheimfiguren sind nach jedem Abschuss 5 Sekunden lang unsterblich
+        if (!killer.isBot && specialOf(killer.name) && killer.alive) {
+          killer.shieldUntil = eng.time + SHIELD_TIME;
+          emit({ k: 'shield', id: killer.id, s: SHIELD_TIME, n: killer.name });
+        }
+      }
       emit({
         k: 'kill', v: p.id, by: killer ? killer.id : 0, r: reason,
         x: Math.round(p.x * 100) / 100, y: Math.round(p.y * 100) / 100,
@@ -450,7 +458,7 @@
       for (let y = Math.max(0, p.cy - r); y <= Math.min(H - 1, p.cy + r); y++)
         for (let x = Math.max(0, p.cx - r); x <= Math.min(W - 1, p.cx + r); x++) {
           const t = trailMap[y * W + x];
-          if (!t || t === p.id || (players[t] && (players[t].invincible || players[t].stone))) continue;
+          if (!t || t === p.id || (players[t] && (players[t].invincible || players[t].stone || eng.time < players[t].shieldUntil))) continue;
           const d = (x - p.cx) ** 2 + (y - p.cy) ** 2;
           if (d < bd) { bd = d; best = y * W + x; }
         }
@@ -734,7 +742,8 @@
       for (const p of players) {
         if (!p) continue;
         out.push([p.id, Math.round(p.x * 100), Math.round(p.y * 100), Math.round(p.angle * 1000),
-          p.alive ? 1 : 0, p.count, p.kills, Math.round(p.spawnTime * 10), p.invincible ? 1 : 0, p.boost ? 1 : 0, p.spikes ? 1 : 0]);
+          p.alive ? 1 : 0, p.count, p.kills, Math.round(p.spawnTime * 10), p.invincible ? 1 : 0, p.boost ? 1 : 0, p.spikes ? 1 : 0,
+          Math.max(0, Math.ceil((p.shieldUntil - eng.time) * 10))]);
       }
       return out;
     }
@@ -827,7 +836,7 @@
 
   return {
     W, H, N, SPEED, TURN, STEP, COLOR_COUNT, SPEEDS,
-    BOOST, SPIKE_RADIUS,
+    BOOST, SPIKE_RADIUS, SHIELD_TIME,
     createEngine, createHub, isRainbowName, specialOf, cleanName, wrapAngle, turnToward, rleDecode,
   };
 });

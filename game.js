@@ -151,6 +151,12 @@
     } else if (ev.k === 'spikes') {
       const mine = myId && ev.id === myId;
       if (session.kind !== 'solo' || mine) addFeed(ev.on ? `${mine ? 'Deine' : ev.n + 's'} Stacheln sind ausgefahren!` : `${mine ? 'Deine' : ev.n + 's'} Stacheln sind eingezogen`, mine);
+    } else if (ev.k === 'shield') {
+      const mine = myId && ev.id === myId;
+      if (mine) {
+        const p = me();
+        if (p) floaters.push({ x: p.rx !== undefined ? p.rx : p.x, y: (p.ry !== undefined ? p.ry : p.y) - 1.8, text: `🛡️ ${ev.s} s unsterblich!`, life: 1.6, color: '#0891b2' });
+      }
     } else if (ev.k === 'steal') {
       const mine = myId && ev.id === myId;
       if (mine) floaters.push({ x: ev.x, y: ev.y - 1, text: '+' + fmtPct((ev.g / N) * 100) + ' geklaut!', life: 1.6, color: '#d97706' });
@@ -195,11 +201,13 @@
 
   function applyPlayers(arr) {
     const now = performance.now();
-    for (const [id, x, y, a, alive, count, kills, st, inv, bst, spk] of arr) {
+    for (const [id, x, y, a, alive, count, kills, st, inv, bst, spk, shd] of arr) {
       const p = remotePlayer(id);
       p.sx = x / 100; p.sy = y / 100; p.sa = a / 1000;
       p.boost = !!bst;
       p.spikes = !!spk;
+      p.shieldLeft = (shd || 0) / 10;   // verbleibende Schutzzeit in Sekunden
+      p.shieldAt = now;
       const was = p.alive;
       p.alive = !!alive;
       if ((!was && p.alive) || Math.hypot(p.x - p.sx, p.y - p.sy) > 4 + SPEED * remote.speedMul * (p.boost ? FE.BOOST : 1) * 0.15) {
@@ -869,6 +877,12 @@
     for (const id of used) msSeen[id] = 0;
   }
 
+  // Verbleibende Schutzzeit (Sekunden) einer Figur – lokal aus der Engine, sonst aus dem Netzwerk
+  function shieldOf(p) {
+    if (!isRemote()) return Math.max(0, (p.shieldUntil || 0) - localEngine.time);
+    return p.shieldLeft ? Math.max(0, p.shieldLeft - (performance.now() - p.shieldAt) / 1000) : 0;
+  }
+
   function render(rt) {
     const cell = cellNow();
     const { owner, trailMap, players } = world;
@@ -1054,6 +1068,22 @@
           ctx.closePath();
           ctx.fill();
         }
+      }
+
+      // Schutzblase nach einem Abschuss (Geheimfiguren): Ring läuft in 5 Sekunden ab
+      const shieldLeft = shieldOf(p);
+      if (shieldLeft > 0) {
+        const frac = Math.min(1, shieldLeft / FE.SHIELD_TIME);
+        const pulse = 0.5 + 0.5 * Math.sin(rt * 10);
+        const R = hr * 1.75;
+        ctx.fillStyle = `rgba(103, 232, 249, ${0.16 + 0.08 * pulse})`;
+        ctx.beginPath(); ctx.arc(sx, sy, R, 0, Math.PI * 2); ctx.fill();
+        ctx.lineCap = 'round';
+        ctx.lineWidth = Math.max(2, cell * 0.14);
+        ctx.strokeStyle = 'rgba(255,255,255,.7)';
+        ctx.beginPath(); ctx.arc(sx, sy, R, 0, Math.PI * 2); ctx.stroke();
+        ctx.strokeStyle = '#06b6d4';
+        ctx.beginPath(); ctx.arc(sx, sy, R, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * frac); ctx.stroke();
       }
 
       // Unsterblich: pulsierender Leuchtring
