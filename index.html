@@ -26,19 +26,33 @@
   <div id="leaderboard"></div>
   <canvas id="minimap" width="160" height="160"></canvas>
   <div id="feed"></div>
+  <div id="roomInfo" class="hidden"></div>
 
   <div id="menu" class="overlay">
     <div class="panel">
       <h1>Farb<span>revier</span></h1>
       <p class="tag">Erobere Gebiet, schneide Gegner ab – aber pass auf deine eigene Spur auf!</p>
-      <input id="nameInput" maxlength="14" placeholder="Dein Name" autocomplete="off">
+      <input id="nameInput" maxlength="14" placeholder="Dein Name" autocomplete="off" aria-label="Dein Name">
       <div id="swatches"></div>
-      <button id="playBtn">Spielen</button>
+      <button id="soloBtn" class="btn" type="button">Allein spielen</button>
+
+      <div id="mpBox" class="mp">
+        <div class="mp-title">Mit anderen spielen</div>
+        <button id="onlineBtn" class="btn secondary" type="button">Online spielen</button>
+        <button id="hostBtn" class="btn secondary" type="button">Raum erstellen</button>
+        <div class="join">
+          <input id="codeInput" maxlength="4" placeholder="Code" autocomplete="off" aria-label="Raumcode">
+          <button id="joinBtn" class="btn secondary" type="button">Beitreten</button>
+        </div>
+      </div>
+      <p id="mpNote" class="hidden note">Mehrspieler gibt es in der GitHub-Pages- oder Server-Version des Spiels.</p>
+      <div id="mpStatus" role="status"></div>
+
       <div class="help">
         <div><b>Steuern:</b> Maus, Pfeiltasten / WASD oder Finger auf dem Handy</div>
         <div><b>Erobern:</b> Verlasse dein Gebiet und kehre zurück – alles Umschlossene gehört dir</div>
         <div><b>Angreifen:</b> Fahr über die Spur eines Gegners, um ihn auszuschalten</div>
-        <div><b>Pause:</b> P oder Esc</div>
+        <div><b>Raum:</b> Einer erstellt einen Raum, die anderen geben den 4-stelligen Code ein</div>
       </div>
       <div id="record"></div>
     </div>
@@ -54,8 +68,9 @@
         <div><span id="resTime">0:00</span><small>Überlebt</small></div>
       </div>
       <div id="overRecord"></div>
-      <button id="againBtn">Nochmal spielen</button>
-      <button id="menuBtn" class="secondary">Zum Menü</button>
+      <p id="overNote" class="note"></p>
+      <button id="againBtn" class="btn" type="button">Nochmal spielen</button>
+      <button id="menuBtn" class="btn secondary" type="button">Zum Menü</button>
     </div>
   </div>
 
@@ -66,6 +81,8 @@
     </div>
   </div>
 
+  <script src="config.js"></script>
+  <script src="engine.js"></script>
   <script src="game.js"></script>
 </body>
 </html>

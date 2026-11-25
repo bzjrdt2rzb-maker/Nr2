@@ -1,25 +1,21 @@
 # Farbrevier
 
-Ein Browser-Spiel, in dem du Gebiet eroberst – gegen 10 computergesteuerte Bots.
+Ein Browser-Spiel, in dem du Gebiet eroberst – allein gegen Bots oder mit Freunden auf verschiedenen Geräten.
 
-## Spielen
+## Spielmodi
 
-Einfach `index.html` im Browser öffnen. Es wird nichts installiert und kein Server gebraucht.
+| Modus | Wie | Was du brauchst |
+| --- | --- | --- |
+| **Allein spielen** | Du gegen 10 Bots | nichts – `index.html` öffnen reicht |
+| **Raum erstellen / Beitreten** | Einer erstellt einen Raum und bekommt einen 4-stelligen Code (oder einen Einladungslink). Die anderen geben den Code ein. Das Gerät des Gastgebers rechnet das Spiel. | Seite auf GitHub Pages (siehe unten) |
+| **Online spielen** | Alle verbinden sich mit einem gemeinsamen Spielserver. Jeder, der die Seite öffnet, landet in derselben Welt. | Server auf Render.com (siehe unten) |
 
-Optional mit lokalem Server:
+In allen Modi füllen Bots die Welt auf, damit immer etwas los ist. Kommen mehr Menschen dazu, verschwinden entsprechend Bots.
 
-```bash
-python3 -m http.server 8000
-# dann http://localhost:8000 öffnen
-```
+### Einhorn-Modus 🦄
 
-Über GitHub Pages lässt sich das Spiel direkt online stellen (Settings → Pages → Branch auswählen).
-
-### Als App auf dem Home-Bildschirm
-
-Die Seite bringt App-Icon und Manifest mit. Auf dem iPhone in Safari: Teilen-Symbol → „Zum Home-Bildschirm“.
-Auf Android in Chrome: Menü (⋮) → „Zum Startbildschirm hinzufügen“. Das Spiel startet dann im Vollbild
-ohne Browserleiste.
+Heißt ein Spieler **Einhorn**, wird sein Gebiet zum glitzernden Regenbogen, und seine Figur bekommt ein Horn.
+Das gilt in allen Modi und ist für alle Mitspieler sichtbar.
 
 ## Regeln
 
@@ -38,7 +34,54 @@ ohne Browserleiste.
 | Maus | Spielfigur folgt dem Mauszeiger |
 | Pfeiltasten / WASD | Richtung wechseln |
 | Touch | Finger auf den Bildschirm – die Figur fährt in diese Richtung |
-| P / Esc | Pause |
+| P / Esc | Pause (nur allein) |
+
+## Online stellen
+
+### GitHub Pages (Allein spielen + Raumcode)
+
+1. Im Repo auf **Settings → Pages** gehen.
+2. Bei *Source* „Deploy from a branch“ wählen, Branch auswählen, Ordner `/ (root)`, speichern.
+3. Nach etwa einer Minute ist das Spiel unter `https://<benutzername>.github.io/<repo>/` erreichbar.
+
+Der Raumcode-Modus nutzt [PeerJS](https://peerjs.com/): Ein kostenloser Vermittlungsserver bringt die Geräte zusammen,
+danach laufen die Daten direkt von Gerät zu Gerät. Hinweise:
+
+- Der Gastgeber muss das Spiel offen und im Vordergrund lassen, sonst bleibt die Welt für alle stehen.
+- Im selben WLAN klappt es am zuverlässigsten. Über Mobilfunk kann die direkte Verbindung manchmal scheitern –
+  dann hilft der Online-Server.
+
+### Render.com (Online-Server)
+
+Der Server (`server/server.js`) liefert das Spiel aus **und** betreibt die gemeinsame Welt. Unter seiner Adresse
+funktionieren alle drei Modi.
+
+1. Konto auf [render.com](https://render.com) anlegen und mit GitHub verbinden.
+2. **New → Blueprint** wählen und dieses Repo auswählen. Render liest `render.yaml` und richtet alles ein (kostenloser Plan).
+3. Nach dem Deploy die angezeigte Adresse öffnen (z. B. `https://farbrevier.onrender.com`) – fertig.
+
+Der kostenlose Plan schläft nach etwa 15 Minuten ohne Besucher ein. Der erste Aufruf danach dauert 30–60 Sekunden.
+
+Soll die GitHub-Pages-Version ebenfalls den Online-Server benutzen, trage dessen Adresse in `config.js` ein:
+
+```js
+window.FARBREVIER_SERVER = 'https://farbrevier.onrender.com';
+```
+
+### Lokal testen
+
+```bash
+npm install
+npm start            # Server auf http://localhost:8080
+```
+
+Ohne Server reicht es auch, `index.html` direkt im Browser zu öffnen (nur „Allein spielen“ und Raumcode).
+
+### Als App auf dem Home-Bildschirm
+
+Die Seite bringt App-Icon und Manifest mit. Auf dem iPhone in Safari: Teilen-Symbol → „Zum Home-Bildschirm“.
+Auf Android in Chrome: Menü (⋮) → „Zum Startbildschirm hinzufügen“. Das Spiel startet dann im Vollbild
+ohne Browserleiste.
 
 ## Bots
 
@@ -51,5 +94,9 @@ nach ein paar Sekunden mit neuem Namen zurück.
 
 - `index.html` – Seite und Menüs
 - `style.css` – Aussehen der Oberfläche
-- `game.js` – Spiellogik, Bot-KI und Darstellung
+- `engine.js` – Spiellogik und Bot-KI (läuft im Browser und auf dem Server)
+- `game.js` – Darstellung, Steuerung, Menüs und Netzwerk im Browser
+- `config.js` – Adresse des Online-Servers
+- `server/server.js` – Online-Server (Node.js, WebSocket)
+- `package.json`, `render.yaml` – Einstellungen für den Server und Render.com
 - `manifest.webmanifest`, `icon.png` – App-Icon und Einstellungen für den Home-Bildschirm

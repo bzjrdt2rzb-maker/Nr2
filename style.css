@@ -101,6 +101,7 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow-y: auto;
   background: rgba(20, 24, 34, .35);
   padding: 16px;
 }
@@ -112,6 +113,7 @@ html, body {
   max-width: 420px;
   text-align: center;
   box-shadow: 0 20px 60px rgba(0, 0, 0, .35);
+  margin: auto;
 }
 .panel.small { max-width: 320px; }
 h1 { margin: 0 0 6px; font-size: 44px; font-weight: 900; letter-spacing: -1px; color: #1f2430; }
@@ -149,7 +151,7 @@ h2 { margin: 0 0 8px; font-size: 30px; }
 }
 #swatches button.sel { border-color: #1f2430; transform: scale(1.12); }
 
-.panel > button {
+.btn {
   display: block;
   width: 100%;
   font-size: 20px;
@@ -162,14 +164,99 @@ h2 { margin: 0 0 8px; font-size: 30px; }
   color: #fff;
   box-shadow: 0 5px 0 #1f5fd0;
   margin-top: 6px;
+  font-family: inherit;
 }
-.panel > button:active { transform: translateY(3px); box-shadow: 0 2px 0 #1f5fd0; }
-.panel > button.secondary {
+.btn:active { transform: translateY(3px); box-shadow: 0 2px 0 #1f5fd0; }
+.btn:disabled { opacity: .55; cursor: default; }
+.btn:focus-visible, #swatches button:focus-visible, #nameInput:focus-visible, #codeInput:focus-visible {
+  outline: 3px solid #1f2430;
+  outline-offset: 2px;
+}
+.btn.secondary {
   background: #e7ebf2;
   color: #1f2430;
   box-shadow: 0 5px 0 #c3cad6;
   font-size: 16px;
   margin-top: 12px;
+}
+.btn.secondary:active { box-shadow: 0 2px 0 #c3cad6; }
+
+.mp {
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 2px dashed #e2e6ee;
+}
+.mp-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: #5b6475;
+}
+.mp .btn.secondary { margin-top: 10px; }
+.join { display: flex; gap: 8px; margin-top: 10px; }
+.join .btn { margin-top: 0; flex: 1; }
+#codeInput {
+  width: 6.5em;
+  flex: none;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  text-align: center;
+  padding: 10px;
+  border: 2px solid #d8dde6;
+  border-radius: 12px;
+  outline: none;
+  user-select: text;
+  -webkit-user-select: text;
+}
+#codeInput:focus { border-color: #3b82f6; }
+#mpStatus { margin-top: 10px; min-height: 1.2em; font-size: 14px; color: #3b82f6; font-weight: 600; }
+#mpStatus.error { color: #dc2626; }
+.note { font-size: 13px; color: #5b6475; margin: 10px 0 0; }
+
+/* Einhorn-Name: Regenbogen-Rahmen im Namensfeld */
+#nameInput.einhorn {
+  border-color: transparent;
+  background:
+    linear-gradient(#fff, #fff) padding-box,
+    linear-gradient(90deg, #f43f5e, #f59e0b, #84cc16, #06b6d4, #8b5cf6, #ec4899, #f43f5e) border-box;
+  background-size: 100% 100%, 200% 100%;
+  animation: rainbowBorder 2s linear infinite;
+}
+@keyframes rainbowBorder { to { background-position: 0 0, -200% 0; } }
+
+#roomInfo {
+  position: fixed;
+  left: calc(16px + env(safe-area-inset-left, 0px));
+  top: calc(16px + env(safe-area-inset-top, 0px));
+  background: rgba(20, 24, 34, .72);
+  color: #fff;
+  border-radius: 12px;
+  padding: 8px 12px;
+  font-size: 14px;
+  display: grid;
+  gap: 6px;
+  max-width: calc(100% - 200px);
+}
+#roomInfo button {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  border: none;
+  border-radius: 8px;
+  padding: 5px 8px;
+  background: #3b82f6;
+  color: #fff;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+#leaderboard .human { color: #fcd34d; margin-right: 4px; font-size: 10px; vertical-align: middle; }
+#feed .msg.important { background: rgba(59, 130, 246, .85); }
+
+@media (prefers-reduced-motion: reduce) {
+  #nameInput.einhorn { animation: none; }
 }
 
 .help {
@@ -198,6 +285,8 @@ h2 { margin: 0 0 8px; font-size: 30px; }
     right: calc(8px + env(safe-area-inset-right, 0px)); bottom: calc(8px + env(safe-area-inset-bottom, 0px)); }
   #hud { left: calc(8px + env(safe-area-inset-left, 0px)); bottom: calc(8px + env(safe-area-inset-bottom, 0px)); }
   #stats .big { font-size: 22px; }
+  #roomInfo { left: calc(8px + env(safe-area-inset-left, 0px)); top: calc(8px + env(safe-area-inset-top, 0px)); font-size: 12px; max-width: calc(100% - 170px); }
+  .panel { padding: 22px 18px 18px; }
   #feed { top: auto; bottom: calc(120px + env(safe-area-inset-bottom, 0px)); }
   h1 { font-size: 36px; }
 }

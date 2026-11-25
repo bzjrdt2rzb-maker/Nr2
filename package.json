@@ -1,0 +1,16 @@
+{
+  "name": "farbrevier",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Gebietseroberungs-Spiel mit Bots – mit Online-Server",
+  "main": "server/server.js",
+  "scripts": {
+    "start": "node server/server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

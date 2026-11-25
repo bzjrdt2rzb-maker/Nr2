@@ -1,19 +1,19 @@
 'use strict';
 /*
- * Farbrevier – ein Gebietseroberungs-Spiel mit Bots.
- * Die Karte ist ein Raster. Jede Zelle hat einen Besitzer (owner) und kann
- * zusätzlich Teil einer Spur (trailMap) sein. Wer mit seiner Spur in das eigene
- * Gebiet zurückkehrt, bekommt alle umschlossenen Zellen.
+ * Farbrevier – Darstellung, Eingabe, Menüs und Netzwerk im Browser.
+ * Modi:
+ *   solo   – allein gegen Bots (Engine läuft im Browser)
+ *   host   – Raum erstellen: Engine läuft hier, Freunde verbinden sich per Raumcode (PeerJS/WebRTC)
+ *   guest  – einem Raum per Code beitreten
+ *   online – mit dem Online-Server verbinden (WebSocket)
  */
 (() => {
-  // ---------- Konstanten ----------
-  const W = 110, H = 110, N = W * H;
-  const SPEED = 7.0;          // Zellen pro Sekunde
-  const TURN = 5.5;           // max. Drehgeschwindigkeit (rad/s)
-  const STEP = 1 / 60;        // feste Simulationsschrittweite
-  const BOT_COUNT = 10;
-  const START_R = 2.7;        // Radius des Startgebiets
-  const HUMAN_ID = 1;
+  const FE = window.FarbEngine;
+  const { W, H, N, SPEED, TURN } = FE;
+  const NO_MP = !!window.FARBREVIER_NO_MP;
+  const PEER_PREFIX = 'farbrevier-v1-';
+  const PEERJS_URL = 'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js';
+  const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
   const COLORS = [
     ['#ef4444', '#b42323'], ['#f97316', '#c2560c'], ['#eab308', '#a37c06'],
@@ -29,494 +29,497 @@
       trailRgb: rgb.map(v => Math.round(v * 0.5 + 255 * 0.5)),
     };
   });
+  const colorOf = p => COLORS[p.color] || COLORS[0];
 
-  const BOT_NAMES = ['Blitz', 'Kringel', 'Pixelfuchs', 'Zickzack', 'Quadrat', 'Rakete', 'Kurve',
-    'Nebel', 'Kobold', 'Schnecke', 'Turbo', 'Glitzer', 'Wirbel', 'Funke', 'Brummer', 'Klecks',
-    'Komet', 'Zappel', 'Murmel', 'Flitzer', 'Krümel', 'Sputnik', 'Bummler', 'Tornado', 'Schatten',
-    'Biber', 'Pinguin', 'Panda', 'Igel', 'Kaktus', 'Waffel', 'Socke', 'Pudding', 'Kiwi'];
-
-  // ---------- Zustand ----------
-  const owner = new Uint8Array(N);
-  const trailMap = new Uint8Array(N);
-  const visit = new Uint32Array(N);
-  const queue = new Int32Array(N);
-  let stamp = 0;
-
-  const players = [null];
-  let time = 0;
-  let state = 'menu';         // menu | play | dead
-  let paused = false;
-  let human = null;
-  let humanColor = 7;
-  let deathCam = null;
-  const particles = [];
-  const floaters = [];
-  const cam = { x: W / 2, y: H / 2 };
-  const deathStats = {};
+  // ---------- Regenbogen (Einhorn) ----------
+  const HUES = 48;
+  const RB_TOP = [], RB_DARK = [], RB_TRAIL = [], RB_RGB = [], RB_TRAIL_RGB = [];
+  function hslRgb(h, s, l) {
+    const f = n => {
+      const k = (n + h / 30) % 12;
+      return Math.round(255 * (l - s * Math.min(l, 1 - l) * Math.max(-1, Math.min(k - 3, 9 - k, 1))));
+    };
+    return [f(0), f(8), f(4)];
+  }
+  for (let k = 0; k < HUES; k++) {
+    const h = (k * 360) / HUES;
+    RB_TOP.push(`hsl(${h},90%,62%)`);
+    RB_DARK.push(`hsl(${h},80%,42%)`);
+    RB_TRAIL.push(`hsla(${h},95%,72%,0.65)`);
+    RB_RGB.push(hslRgb(h, 0.9, 0.62));
+    RB_TRAIL_RGB.push(hslRgb(h, 0.95, 0.82));
+  }
+  const RAINBOW_CSS = 'linear-gradient(135deg,#f43f5e,#f59e0b,#84cc16,#06b6d4,#8b5cf6,#ec4899)';
+  const rbIndex = (x, y, t) => ((((x + y) * 3 + Math.floor(t * 24)) % HUES) + HUES) % HUES;
+  const cellHash = (x, y) => (Math.imul(x, 73856093) ^ Math.imul(y, 19349663)) >>> 0;
+  const isRb = p => FE.isRainbowName(p.name);
 
   // ---------- Hilfsfunktionen ----------
   const rand = (a, b) => a + Math.random() * (b - a);
-  const randi = (a, b) => Math.floor(rand(a, b + 1));
-  const wrapAngle = a => {
-    while (a > Math.PI) a -= 2 * Math.PI;
-    while (a < -Math.PI) a += 2 * Math.PI;
-    return a;
-  };
-  const turnToward = (a, t, max) => {
-    const d = wrapAngle(t - a);
-    return Math.abs(d) <= max ? t : a + Math.sign(d) * max;
-  };
-  const pctOf = p => (p.count / N) * 100;
   const fmtPct = v => (v >= 10 ? v.toFixed(1) : v.toFixed(2)) + '%';
-  const fmtTime = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  const fmtTime = s => `${Math.floor(Math.max(0, s) / 60)}:${String(Math.floor(Math.max(0, s) % 60)).padStart(2, '0')}`;
   const store = {
     get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
     set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* egal */ } },
   };
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const $ = id => document.getElementById(id);
 
-  function newPlayer(id, isBot) {
-    return {
-      id, isBot, name: '', color: COLORS[0], alive: false,
-      x: 0, y: 0, cx: 0, cy: 0, angle: 0, target: 0,
-      trail: [], count: 0, bx0: W, by0: H, bx1: -1, by1: -1,
-      kills: 0, bestPct: 0, spawnTime: 0, respawnAt: 0,
-      ai: { mode: 'home', plan: null, home: null, homeTimer: 0, tick: 0, aggr: Math.random(), hunt: -1, huntUntil: 0 },
-    };
-  }
+  // ---------- Zustand ----------
+  const localEngine = FE.createEngine({ targetPlayers: 11 });
+  const remote = { owner: new Uint8Array(N), trailMap: new Uint8Array(N), players: [null], time: 0, timeAt: 0 };
+  let world = localEngine;          // was gerade gezeichnet wird: { owner, trailMap, players }
+  let session = { kind: 'solo' };
+  let localHuman = null;
+  let myId = 0;
+  let ui = 'menu';                  // menu | connecting | play | dead
+  let paused = false;
+  let humanColor = 7;
+  let myTarget = 0, lastSentTarget = null, predAngle = 0;
+  let myBest = 0;
+  let deathCam = null;
+  let lastRun = null;
+  let creatingSelf = false;
+  const particles = [];
+  const floaters = [];
+  const cam = { x: W / 2, y: H / 2 };
 
-  function setOwner(i, id) {
-    const old = owner[i];
-    if (old === id) return;
-    if (old) players[old].count--;
-    owner[i] = id;
-    if (id) {
-      const p = players[id];
-      p.count++;
-      const x = i % W, y = (i / W) | 0;
-      if (x < p.bx0) p.bx0 = x;
-      if (x > p.bx1) p.bx1 = x;
-      if (y < p.by0) p.by0 = y;
-      if (y > p.by1) p.by1 = y;
-    }
-  }
+  const me = () => (myId ? world.players[myId] || null : null);
+  const isRemote = () => session.kind === 'guest' || session.kind === 'online';
+  const worldTime = () => (isRemote() ? remote.time + (performance.now() - remote.timeAt) / 1000 : localEngine.time);
 
-  // ---------- Spawnen & Sterben ----------
-  function areaFree(cx, cy, r) {
-    for (let y = cy - r; y <= cy + r; y++)
-      for (let x = cx - r; x <= cx + r; x++) {
-        const i = y * W + x;
-        if (owner[i] || trailMap[i]) return false;
-      }
-    return true;
-  }
-
-  function farFromHeads(cx, cy, d) {
-    for (const q of players) {
-      if (q && q.alive && Math.hypot(q.x - cx, q.y - cy) < d) return false;
-    }
-    return true;
-  }
-
-  function findSpawn() {
-    for (let t = 0; t < 300; t++) {
-      const cx = randi(6, W - 7), cy = randi(6, H - 7);
-      if (areaFree(cx, cy, 5) && farFromHeads(cx, cy, 12)) return [cx, cy];
-    }
-    for (let t = 0; t < 300; t++) {
-      const cx = randi(6, W - 7), cy = randi(6, H - 7);
-      if (areaFree(cx, cy, 3)) return [cx, cy];
-    }
-    return [randi(6, W - 7), randi(6, H - 7)];
-  }
-
-  function spawn(p) {
-    const [cx, cy] = findSpawn();
-    p.bx0 = W; p.by0 = H; p.bx1 = -1; p.by1 = -1;
-    p.count = 0; p.trail = []; p.kills = 0; p.bestPct = 0;
-    const r = Math.ceil(START_R);
-    for (let dy = -r; dy <= r; dy++)
-      for (let dx = -r; dx <= r; dx++)
-        if (dx * dx + dy * dy <= START_R * START_R) setOwner((cy + dy) * W + cx + dx, p.id);
-    p.x = cx + 0.5; p.y = cy + 0.5; p.cx = cx; p.cy = cy;
-    p.angle = rand(-Math.PI, Math.PI); p.target = p.angle;
-    p.alive = true; p.spawnTime = time;
-    Object.assign(p.ai, { mode: 'home', plan: null, home: null, homeTimer: rand(0.2, 1), hunt: -1 });
-    checkWipeouts(p);
-  }
-
-  function checkWipeouts(by) {
-    for (const q of players) {
-      if (q && q.alive && q !== by && q.count <= 0) kill(q, by, 'wiped');
-    }
-  }
-
-  function kill(p, killer, reason) {
-    if (!p.alive) return;
-    p.alive = false;
-    for (const i of p.trail) if (trailMap[i] === p.id) trailMap[i] = 0;
-    p.trail = [];
-    for (let y = Math.max(0, p.by0); y <= Math.min(H - 1, p.by1); y++)
-      for (let x = Math.max(0, p.bx0); x <= Math.min(W - 1, p.bx1); x++) {
-        const i = y * W + x;
-        if (owner[i] === p.id) owner[i] = 0;
-      }
-    p.count = 0;
-    deathStats[reason] = (deathStats[reason] || 0) + 1;
-    burst(p.x, p.y, p.color);
-    if (killer && killer !== p) killer.kills++;
-
-    let msg;
-    if (reason === 'self') msg = `${p.name} ist über die eigene Spur gestolpert`;
-    else if (reason === 'head') msg = `${killer.name} hat ${p.name} gerammt`;
-    else if (reason === 'wiped') msg = `${killer.name} hat ${p.name} komplett eingenommen`;
-    else msg = `${killer.name} hat ${p.name} abgeschnitten`;
-    addFeed(msg, p === human || killer === human);
-
-    if (p.isBot) p.respawnAt = time + rand(1.5, 3.5);
-    else onHumanDeath(killer, reason);
-  }
-
-  // ---------- Bewegung & Eroberung ----------
-  function move(p) {
-    p.angle = wrapAngle(turnToward(p.angle, p.target, TURN * STEP));
-    const ox = p.x, oy = p.y;
-    const nx = Math.min(W - 0.001, Math.max(0.001, ox + Math.cos(p.angle) * SPEED * STEP));
-    const ny = Math.min(H - 0.001, Math.max(0.001, oy + Math.sin(p.angle) * SPEED * STEP));
-    p.x = nx; p.y = ny;
-    const ncx = nx | 0, ncy = ny | 0;
-    if (ncx === p.cx && ncy === p.cy) return;
-    if (ncx !== p.cx && ncy !== p.cy) {
-      // diagonaler Schritt: Zwischenzelle einfügen, damit die Spur lückenlos bleibt
-      const bx = ncx > p.cx ? ncx : p.cx, by = ncy > p.cy ? ncy : p.cy;
-      const tx = (bx - ox) / (nx - ox), ty = (by - oy) / (ny - oy);
-      if (tx < ty) enterCell(p, ncx, p.cy); else enterCell(p, p.cx, ncy);
-      if (!p.alive) return;
-    }
-    enterCell(p, ncx, ncy);
-  }
-
-  function enterCell(p, cx, cy) {
-    p.cx = cx; p.cy = cy;
-    const i = cy * W + cx;
-    const t = trailMap[i];
-    if (t) {
-      if (t === p.id) {
-        // Zurückrutschen in eine der zuletzt gezogenen Zellen (Streifen einer
-        // Zellgrenze) zählt nicht als Selbstkollision.
-        if (p.trail.lastIndexOf(i) >= p.trail.length - 4) return;
-        kill(p, p, 'self');
-        return;
-      }
-      kill(players[t], p, 'trail');
-    }
-    if (owner[i] === p.id) {
-      if (p.trail.length) capture(p);
-    } else {
-      trailMap[i] = p.id;
-      p.trail.push(i);
-    }
-  }
-
-  function capture(p) {
-    const id = p.id;
-    const before = p.count;
-    for (const i of p.trail) {
-      if (trailMap[i] === id) trailMap[i] = 0;
-      setOwner(i, id);
-    }
-    p.trail = [];
-
-    // Flutfüllung vom Rand der (erweiterten) Bounding-Box: alles, was nicht
-    // erreichbar ist, ist umschlossen.
-    const x0 = Math.max(0, p.bx0 - 1), x1 = Math.min(W - 1, p.bx1 + 1);
-    const y0 = Math.max(0, p.by0 - 1), y1 = Math.min(H - 1, p.by1 + 1);
-    stamp++;
-    let qn = 0;
-    const seed = i => {
-      if (owner[i] !== id && visit[i] !== stamp) { visit[i] = stamp; queue[qn++] = i; }
-    };
-    for (let x = x0; x <= x1; x++) { seed(y0 * W + x); seed(y1 * W + x); }
-    for (let y = y0; y <= y1; y++) { seed(y * W + x0); seed(y * W + x1); }
-    while (qn > 0) {
-      const i = queue[--qn];
-      const x = i % W, y = (i / W) | 0;
-      if (x > x0) seed(i - 1);
-      if (x < x1) seed(i + 1);
-      if (y > y0) seed(i - W);
-      if (y < y1) seed(i + W);
-    }
-    for (let y = y0; y <= y1; y++)
-      for (let x = x0; x <= x1; x++) {
-        const i = y * W + x;
-        if (owner[i] !== id && visit[i] !== stamp) setOwner(i, id);
-      }
-
-    const gained = p.count - before;
-    if (p === human && gained > 0) {
-      floaters.push({ x: p.x, y: p.y - 1, text: '+' + fmtPct((gained / N) * 100), life: 1.2, color: p.color.dark });
-    }
-    checkWipeouts(p);
-  }
-
-  function headCollisions() {
-    for (let a = 1; a < players.length; a++) {
-      const p = players[a];
-      if (!p.alive) continue;
-      for (let b = a + 1; b < players.length; b++) {
-        const q = players[b];
-        if (!q.alive || !p.alive) continue;
-        const dx = p.x - q.x, dy = p.y - q.y;
-        if (dx * dx + dy * dy > 0.7 * 0.7) continue;
-        const pIn = owner[p.cy * W + p.cx] === p.id;
-        const qIn = owner[q.cy * W + q.cx] === q.id;
-        if (pIn && !qIn) kill(q, p, 'head');
-        else if (qIn && !pIn) kill(p, q, 'head');
-        else if (!pIn && !qIn) {
-          // beide draußen: wer die längere Spur hat, verliert
-          if (p.trail.length > q.trail.length) kill(p, q, 'head');
-          else if (q.trail.length > p.trail.length) kill(q, p, 'head');
-          else { kill(p, q, 'head'); kill(q, p, 'head'); }
-        }
-      }
-    }
-  }
-
-  // ---------- Bot-KI ----------
-  // Prüft, ob die gerade Linie von (ax,ay) nach (bx,by) die eigene Spur kreuzt
-  function lineHitsTrail(p, ax, ay, bx, by) {
-    const len = Math.hypot(bx - ax, by - ay), here = p.cy * W + p.cx;
-    for (let d = 0.8; d < len; d += 0.4) {
-      const x = ax + (bx - ax) * d / len, y = ay + (by - ay) * d / len;
-      const i = (y | 0) * W + (x | 0);
-      if (i !== here && trailMap[i] === p.id) return true;
-    }
-    return false;
-  }
-
-  // Nächste eigene Zelle, deren direkter Weg nicht über die eigene Spur führt
-  function nearestOwn(p) {
-    const cand = [];
-    for (let y = Math.max(0, p.by0); y <= Math.min(H - 1, p.by1); y++)
-      for (let x = Math.max(0, p.bx0); x <= Math.min(W - 1, p.bx1); x++) {
-        if (owner[y * W + x] !== p.id) continue;
-        const dx = x + 0.5 - p.x, dy = y + 0.5 - p.y;
-        cand.push([dx * dx + dy * dy, x + 0.5, y + 0.5]);
-      }
-    if (!cand.length) return null;
-    cand.sort((a, b) => a[0] - b[0]);
-    const lim = Math.min(cand.length, 60);
-    for (let k = 0; k < lim; k += (k < 10 ? 1 : 3)) {
-      const c = cand[k];
-      if (!lineHitsTrail(p, p.x, p.y, c[1], c[2])) return { x: c[1], y: c[2] };
-    }
-    return { x: cand[0][1], y: cand[0][2] };
-  }
-
-  function threatened(p) {
-    const ai = p.ai;
-    const homeD = ai.home ? Math.hypot(ai.home.x - p.x, ai.home.y - p.y) : 8;
-    const margin = 2 + (1 - ai.aggr) * 5;
-    const tr = p.trail;
-    for (const q of players) {
-      if (!q || !q.alive || q === p) continue;
-      let d2 = (q.x - p.x) ** 2 + (q.y - p.y) ** 2;
-      for (let k = 0; k < tr.length; k += 2) {
-        const i = tr[k];
-        const dx = (i % W) + 0.5 - q.x, dy = ((i / W) | 0) + 0.5 - q.y;
-        const dd = dx * dx + dy * dy;
-        if (dd < d2) d2 = dd;
-      }
-      if (Math.sqrt(d2) < homeD + margin) return true;
-    }
-    return false;
-  }
-
-  function findPrey(p, r) {
-    let best = -1, bd = Infinity;
-    for (let y = Math.max(0, p.cy - r); y <= Math.min(H - 1, p.cy + r); y++)
-      for (let x = Math.max(0, p.cx - r); x <= Math.min(W - 1, p.cx + r); x++) {
-        const t = trailMap[y * W + x];
-        if (!t || t === p.id) continue;
-        const d = (x - p.cx) ** 2 + (y - p.cy) ** 2;
-        if (d < bd) { bd = d; best = y * W + x; }
-      }
-    return best;
-  }
-
-  function planExcursion(p, forced) {
-    let out = forced;
-    if (out === undefined) {
-      let best = -Infinity;
-      for (let k = 0; k < 12; k++) {
-        const ang = k * Math.PI / 6 + rand(-0.2, 0.2);
-        const c = Math.cos(ang), s = Math.sin(ang);
-        let sc = rand(0, 4);
-        for (let d = 2; d <= 16; d += 2) {
-          const x = Math.floor(p.x + c * d), y = Math.floor(p.y + s * d);
-          if (x < 1 || y < 1 || x >= W - 1 || y >= H - 1) { sc -= d < 10 ? 50 : 10; break; }
-          const o = owner[y * W + x];
-          if (o !== p.id) sc += o === 0 ? 1 : 1.4;
-        }
-        sc -= Math.abs(wrapAngle(ang - p.angle)) * 0.8;
-        if (sc > best) { best = sc; out = ang; }
-      }
-    }
-    const k = 0.6 + p.ai.aggr * 1.2;
-    return {
-      out,
-      side: Math.random() < 0.5 ? -1 : 1,
-      len1: Math.round(rand(3, 9) * k),
-      len2: Math.round(rand(3, 9) * k),
-      maxL: Math.round(25 + p.ai.aggr * 45),
-    };
-  }
-
-  // Simuliert die echte Fahrt (inkl. Wenderadius) Richtung "target" und liefert
-  // den Schritt, an dem die eigene Spur oder der Rand getroffen würde.
-  const SIM_DT = 0.05, SIM_STEPS = 16;
-  function pathHit(p, target) {
-    let x = p.x, y = p.y, a = p.angle;
-    const here = p.cy * W + p.cx;
-    for (let k = 0; k < SIM_STEPS; k++) {
-      a = turnToward(a, target, TURN * SIM_DT);
-      x += Math.cos(a) * SPEED * SIM_DT;
-      y += Math.sin(a) * SPEED * SIM_DT;
-      if (x < 0.3 || y < 0.3 || x > W - 0.3 || y > H - 0.3) return k;
-      const i = (y | 0) * W + (x | 0);
-      if (i !== here && trailMap[i] === p.id) return k;
-    }
-    return SIM_STEPS;
-  }
-
-  const OFFSETS = [0, 0.3, -0.3, 0.65, -0.65, 1.0, -1.0, 1.4, -1.4, 1.9, -1.9, 2.5, -2.5, 3.1];
-  function safeAngle(p, desired) {
-    let best = desired, bestHit = -1;
-    for (const o of OFFSETS) {
-      const a = desired + o;
-      const h = pathHit(p, a);
-      if (h >= SIM_STEPS) return a;
-      if (h > bestHit) { bestHit = h; best = a; }
-    }
-    return best;
-  }
-
-  function botThink(p) {
-    const ai = p.ai, id = p.id;
-    ai.tick++;
-    const inHome = owner[p.cy * W + p.cx] === id;
-    let desired = p.angle;
-
-    if (inHome) {
-      if (ai.mode !== 'home') { ai.mode = 'home'; ai.plan = null; ai.homeTimer = rand(0.1, 0.9); }
-      ai.homeTimer -= STEP;
-      if (!ai.plan && ai.homeTimer <= 0) ai.plan = planExcursion(p);
-      if (ai.plan) desired = ai.plan.out;
-    } else {
-      if (!ai.plan) ai.plan = planExcursion(p, p.angle);
-      if (ai.mode === 'home') ai.mode = 'out';
-      if (ai.tick % 6 === 0 || !ai.home) ai.home = nearestOwn(p);
-      const L = p.trail.length;
-      if (ai.mode === 'out' && L >= ai.plan.len1) ai.mode = 'side';
-      if (ai.mode === 'side' && L >= ai.plan.len1 + ai.plan.len2) ai.mode = 'back';
-      if (L > ai.plan.maxL) ai.mode = 'back';
-      if (ai.mode !== 'back' && ai.tick % 4 === 0 && threatened(p)) ai.mode = 'back';
-
-      if (ai.mode === 'out') desired = ai.plan.out;
-      else if (ai.mode === 'side') desired = ai.plan.out + ai.plan.side * Math.PI / 2;
-      else if (ai.home) desired = Math.atan2(ai.home.y - p.y, ai.home.x - p.x);
-    }
-
-    // Jagen: fremde Spuren in der Nähe angreifen
-    if (ai.tick % 8 === 0 && p.trail.length < 14) {
-      const prey = findPrey(p, Math.round(3 + ai.aggr * 5));
-      if (prey >= 0) { ai.hunt = prey; ai.huntUntil = time + 1.5; }
-    }
-    if (ai.hunt >= 0) {
-      const t = trailMap[ai.hunt];
-      if (t && t !== id && time < ai.huntUntil) {
-        desired = Math.atan2(((ai.hunt / W) | 0) + 0.5 - p.y, (ai.hunt % W) + 0.5 - p.x);
-      } else ai.hunt = -1;
-    }
-
-    p.target = safeAngle(p, desired);
-  }
-
-  function giveBotIdentity(p) {
-    const usedNames = new Set(), usedColors = new Set([humanColor]);
-    for (const q of players) {
-      if (q && q !== p && (q.alive || q === human)) { usedNames.add(q.name); usedColors.add(q.color.i); }
-    }
-    const names = BOT_NAMES.filter(n => !usedNames.has(n));
-    p.name = names[randi(0, names.length - 1)] || 'Bot';
-    const cols = COLORS.filter(c => !usedColors.has(c.i));
-    p.color = cols.length ? cols[randi(0, cols.length - 1)] : COLORS[randi(0, COLORS.length - 1)];
-    p.ai.aggr = Math.random();
-  }
-
-  // ---------- Effekte ----------
-  function burst(x, y, color) {
-    for (let k = 0; k < 26; k++) {
-      const a = rand(0, Math.PI * 2), v = rand(2, 9);
-      particles.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: rand(0.5, 1.1), color, size: rand(0.2, 0.5) });
-    }
-  }
-
-  const feedEl = document.getElementById('feed');
+  // ---------- Ereignisse (lokal oder vom Netzwerk) ----------
+  const feedEl = $('feed');
   function addFeed(text, important) {
-    if (state === 'menu' && !important) return;
+    if (ui === 'menu' && !important) return;
     const el = document.createElement('div');
-    el.className = 'msg';
+    el.className = 'msg' + (important ? ' important' : '');
     el.textContent = text;
-    if (important) el.style.background = 'rgba(59,130,246,.85)';
     feedEl.appendChild(el);
     while (feedEl.children.length > 4) feedEl.firstChild.remove();
     setTimeout(() => { el.style.opacity = '0'; }, 2600);
     setTimeout(() => el.remove(), 3300);
   }
 
-  // ---------- Simulation ----------
-  function update() {
-    time += STEP;
-    for (let k = 1; k < players.length; k++) {
-      const p = players[k];
-      if (p.alive && p.isBot) botThink(p);
-    }
-    for (let k = 1; k < players.length; k++) {
-      const p = players[k];
-      if (p.alive) move(p);
-    }
-    headCollisions();
-    for (let k = 1; k < players.length; k++) {
-      const p = players[k];
-      if (p.isBot && !p.alive && time >= p.respawnAt) { giveBotIdentity(p); spawn(p); }
-      if (p.alive) p.bestPct = Math.max(p.bestPct, pctOf(p));
-    }
-    for (let k = particles.length - 1; k >= 0; k--) {
-      const q = particles[k];
-      q.x += q.vx * STEP; q.y += q.vy * STEP;
-      q.vx *= 0.94; q.vy *= 0.94;
-      q.life -= STEP;
-      if (q.life <= 0) particles.splice(k, 1);
-    }
-    for (let k = floaters.length - 1; k >= 0; k--) {
-      const f = floaters[k];
-      f.y -= STEP * 1.2;
-      f.life -= STEP;
-      if (f.life <= 0) floaters.splice(k, 1);
+  function burst(x, y, colorIdx, rainbow) {
+    const col = COLORS[colorIdx] || COLORS[0];
+    for (let k = 0; k < 26; k++) {
+      const a = rand(0, Math.PI * 2), v = rand(2, 9);
+      particles.push({
+        x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: rand(0.5, 1.1),
+        color: rainbow ? `hsl(${Math.floor(rand(0, 360))},90%,62%)` : col.base, size: rand(0.2, 0.5),
+      });
     }
   }
 
+  function handleEvent(ev) {
+    if (!ev) return;
+    if (ev.k === 'kill') {
+      burst(ev.x, ev.y, ev.c, FE.isRainbowName(ev.vn));
+      const mine = myId !== 0 && (ev.v === myId || ev.by === myId);
+      let msg;
+      if (ev.r === 'self') msg = `${ev.vn} ist über die eigene Spur gestolpert`;
+      else if (ev.r === 'head') msg = `${ev.kn} hat ${ev.vn} gerammt`;
+      else if (ev.r === 'wiped') msg = `${ev.kn} hat ${ev.vn} komplett eingenommen`;
+      else if (ev.r === 'leave') msg = `${ev.vn} hat das Spiel verlassen`;
+      else msg = `${ev.kn} hat ${ev.vn} abgeschnitten`;
+      if (ev.r !== 'leave' || session.kind !== 'solo') addFeed(msg, mine);
+      if (myId && ev.v === myId && ui === 'play') onMyDeath(ev);
+    } else if (ev.k === 'cap') {
+      if (myId && ev.id === myId) {
+        const p = me();
+        floaters.push({
+          x: ev.x, y: ev.y - 1, text: '+' + fmtPct((ev.g / N) * 100), life: 1.2,
+          color: p && isRb(p) ? '#d946ef' : (p ? colorOf(p).dark : '#1f2430'),
+        });
+      }
+    } else if (ev.k === 'join') {
+      if (!creatingSelf && ev.id !== myId && session.kind !== 'solo') addFeed(`${ev.n} ist beigetreten`, true);
+    }
+  }
+
+  // ---------- Remote-Welt (Gast / Online) ----------
+  function resetRemote() {
+    remote.owner.fill(0);
+    remote.trailMap.fill(0);
+    remote.players = [null];
+    remote.time = 0;
+    remote.timeAt = performance.now();
+  }
+
+  function remotePlayer(id) {
+    let p = remote.players[id];
+    if (!p) {
+      while (remote.players.length <= id) remote.players.push(null);
+      p = remote.players[id] = {
+        id, name: '', color: 0, isBot: false, x: 0, y: 0, angle: 0, sx: 0, sy: 0, sa: 0,
+        alive: false, count: 0, kills: 0, spawnTime: 0, snapAt: 0,
+      };
+    }
+    return p;
+  }
+
+  function applyMeta(m) {
+    const seen = new Set();
+    for (const [id, name, color, bot] of m) {
+      const p = remotePlayer(id);
+      p.name = String(name);
+      p.color = color | 0;
+      p.isBot = !!bot;
+      seen.add(id);
+    }
+    for (let k = 1; k < remote.players.length; k++) if (remote.players[k] && !seen.has(k)) remote.players[k] = null;
+  }
+
+  function applyPlayers(arr) {
+    const now = performance.now();
+    for (const [id, x, y, a, alive, count, kills, st] of arr) {
+      const p = remotePlayer(id);
+      p.sx = x / 100; p.sy = y / 100; p.sa = a / 1000;
+      const was = p.alive;
+      p.alive = !!alive;
+      if ((!was && p.alive) || Math.hypot(p.x - p.sx, p.y - p.sy) > 4) {
+        p.x = p.sx; p.y = p.sy; p.angle = p.sa;
+        if (id === myId) { predAngle = p.sa; myTarget = p.sa; lastSentTarget = p.sa; snapCam = true; }
+      }
+      p.snapAt = now;
+      p.count = count;
+      p.kills = kills;
+      p.spawnTime = st / 10;
+    }
+  }
+
+  function onRemoteMessage(msg) {
+    if (!msg || typeof msg !== 'object' || !isRemote()) return;
+    session.lastMsgAt = performance.now();
+    if (msg.t === 'welcome') {
+      myId = msg.id | 0;
+    } else if (msg.t === 'full') {
+      FE.rleDecode(msg.o, remote.owner);
+      FE.rleDecode(msg.tr, remote.trailMap);
+      applyMeta(msg.m);
+      applyPlayers(msg.p);
+      remote.time = msg.time; remote.timeAt = performance.now();
+      if (ui === 'connecting') { setStatus(''); enterPlay(); }
+    } else if (msg.t === 'd') {
+      const c = msg.c || [];
+      for (let k = 0; k + 2 < c.length; k += 3) {
+        const i = c[k];
+        if (i >= 0 && i < N) { remote.owner[i] = c[k + 1]; remote.trailMap[i] = c[k + 2]; }
+      }
+      if (msg.m) applyMeta(msg.m);
+      if (msg.p) applyPlayers(msg.p);
+      remote.time = msg.time; remote.timeAt = performance.now();
+      if (msg.ev) for (const ev of msg.ev) handleEvent(ev);
+    } else if (msg.t === 'full-room') {
+      backToMenu('Dieser Raum ist voll.', true);
+    }
+  }
+
+  function updateRemoteDisplay(dt) {
+    predAngle = FE.wrapAngle(FE.turnToward(predAngle, myTarget, TURN * dt));
+    const now = performance.now();
+    const k = Math.min(1, dt * 14);
+    for (const p of remote.players) {
+      if (!p || !p.alive) continue;
+      const age = Math.min(0.2, (now - p.snapAt) / 1000);
+      const a = p.id === myId ? predAngle : p.sa;
+      const tx = p.sx + Math.cos(a) * SPEED * age, ty = p.sy + Math.sin(a) * SPEED * age;
+      p.x += (tx - p.x) * k;
+      p.y += (ty - p.y) * k;
+      p.angle = p.id === myId ? predAngle : FE.wrapAngle(FE.turnToward(p.angle, p.sa, 12 * dt));
+    }
+  }
+
+  // Richtung an Host/Server schicken (max. 20x pro Sekunde, nur bei Änderung)
+  setInterval(() => {
+    // Verbindung tot? (Host/Server schickt sonst 20 Updates pro Sekunde)
+    if (isRemote() && session.lastMsgAt && performance.now() - session.lastMsgAt > (ui === 'connecting' ? 15000 : 5000)) {
+      backToMenu(session.kind === 'guest' ? 'Die Verbindung zum Raum wurde getrennt.' : 'Die Verbindung zum Server wurde getrennt.', true);
+      return;
+    }
+    if (!isRemote() || !session.link || ui !== 'play') return;
+    const p = me();
+    if (!p || !p.alive) return;
+    if (lastSentTarget === null || Math.abs(myTarget - lastSentTarget) > 0.001) {
+      session.link.send({ t: 'dir', a: Math.round(myTarget * 1000) / 1000 });
+      lastSentTarget = myTarget;
+    }
+  }, 50);
+
+  // ---------- Sitzungen ----------
+  function profile() {
+    const name = FE.cleanName($('nameInput').value, 'Du');
+    store.set('farbrevier.name', name);
+    return { name, color: humanColor };
+  }
+
+  function leaveSession() {
+    const old = session;
+    session = { kind: 'solo' };
+    myId = 0;
+    if (old.kind === 'host') {
+      for (const conn of old.conns.keys()) { try { conn.close(); } catch (e) { /* egal */ } }
+      for (const c of [...old.hub.clients]) old.hub.remove(c);
+      try { old.peer.destroy(); } catch (e) { /* egal */ }
+      localEngine.setTrackDirty(false);
+    }
+    if (old.link) old.link.close();
+    if (old.peer && old.kind !== 'host') { try { old.peer.destroy(); } catch (e) { /* egal */ } }
+    if (localHuman && localEngine.players[localHuman.id] === localHuman) localEngine.removePlayer(localHuman);
+    localHuman = null;
+    world = localEngine;
+    updateRoomInfo();
+  }
+
+  function createLocalHuman(prof) {
+    creatingSelf = true;
+    localHuman = localEngine.addHuman(prof.name, prof.color);
+    creatingSelf = false;
+    localEngine.spawnPlayer(localHuman);
+    myId = localHuman.id;
+    myTarget = localHuman.angle;
+  }
+
+  function startSolo() {
+    const prof = profile();
+    leaveSession();
+    session = { kind: 'solo' };
+    createLocalHuman(prof);
+    enterPlay();
+  }
+
+  function respawn() {
+    const prof = profile();
+    if (session.kind === 'solo' || session.kind === 'host') {
+      if (!localHuman) { startSolo(); return; }
+      localEngine.spawnPlayer(localHuman, prof.name, prof.color);
+      myTarget = localHuman.angle;
+    } else if (session.link) {
+      session.link.send({ t: 'spawn', name: prof.name, color: prof.color });
+    }
+    enterPlay();
+  }
+
+  function enterPlay() {
+    ui = 'play';
+    paused = false;
+    myBest = 0;
+    deathCam = null;
+    snapCam = true;
+    $('menu').classList.add('hidden');
+    $('over').classList.add('hidden');
+    $('pause').classList.add('hidden');
+    $('hud').classList.remove('hidden');
+    updateRoomInfo();
+  }
+
+  function backToMenu(statusText, isError) {
+    leaveSession();
+    ui = 'menu';
+    setBusy(false);
+    $('over').classList.add('hidden');
+    $('pause').classList.add('hidden');
+    $('hud').classList.add('hidden');
+    $('menu').classList.remove('hidden');
+    setStatus(statusText || '', isError);
+    showRecord();
+    updateRoomInfo();
+  }
+
+  function onMyDeath(ev) {
+    ui = 'dead';
+    deathCam = { x: ev.x, y: ev.y };
+    const p = me();
+    const best = bestRecord();
+    const pct = Math.max(myBest, p ? (p.count / N) * 100 : 0);
+    const isRecord = best > 0 && pct > best;
+    if (pct > best) store.set('farbrevier.best', String(pct));
+    lastRun = {
+      reason: ev.r, killer: ev.kn, pct, kills: p ? p.kills : 0,
+      survived: p ? worldTime() - p.spawnTime : 0, isRecord, best: Math.max(best, pct),
+    };
+    setTimeout(showGameOver, 900);
+  }
+
+  // ---------- Raum (PeerJS) ----------
+  let peerLoading = null;
+  function loadPeer() {
+    if (window.Peer) return Promise.resolve();
+    if (!peerLoading) {
+      peerLoading = new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = PEERJS_URL;
+        s.onload = () => (window.Peer ? resolve() : reject(new Error('no Peer')));
+        s.onerror = () => { peerLoading = null; reject(new Error('load failed')); };
+        document.head.appendChild(s);
+      });
+    }
+    return peerLoading;
+  }
+  const peerOptions = () => Object.assign({ debug: 0 }, window.FARBREVIER_PEER || {});
+  const makeCode = () => Array.from({ length: 4 }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('');
+
+  async function startHost(attempt) {
+    attempt = attempt || 0;
+    const prof = profile();
+    setStatus('Raum wird erstellt …');
+    setBusy(true);
+    try { await loadPeer(); } catch (e) {
+      setBusy(false);
+      setStatus('Die Mehrspieler-Verbindung konnte nicht geladen werden. Bist du online?', true);
+      return;
+    }
+    leaveSession();
+    const code = makeCode();
+    const peer = new window.Peer(PEER_PREFIX + code, peerOptions());
+    let opened = false;
+    peer.on('open', () => {
+      opened = true;
+      setBusy(false);
+      const hub = FE.createHub(localEngine, { maxHumans: 12 });
+      session = { kind: 'host', peer, hub, code, conns: new Map() };
+      createLocalHuman(prof);
+      setStatus('');
+      enterPlay();
+    });
+    peer.on('connection', conn => {
+      if (session.kind !== 'host' || session.peer !== peer) { try { conn.close(); } catch (e) { /* egal */ } return; }
+      const s = session;
+      let client = null;
+      conn.on('open', () => {
+        client = s.hub.add(msg => { try { if (conn.open) conn.send(msg); } catch (e) { /* egal */ } });
+        s.conns.set(conn, client);
+        updateRoomInfo();
+      });
+      conn.on('data', msg => { if (client) s.hub.message(client, msg); });
+      const drop = () => {
+        if (client) { s.hub.remove(client); client = null; }
+        s.conns.delete(conn);
+        updateRoomInfo();
+      };
+      conn.on('close', drop);
+      conn.on('error', drop);
+    });
+    peer.on('disconnected', () => {
+      // Verbindung zum Vermittlungsserver weg: bestehende Spieler bleiben verbunden
+      if (session.peer === peer && !peer.destroyed) { try { peer.reconnect(); } catch (e) { /* egal */ } }
+    });
+    peer.on('error', err => {
+      if (opened) return;
+      setBusy(false);
+      try { peer.destroy(); } catch (e) { /* egal */ }
+      if (err && err.type === 'unavailable-id' && attempt < 3) { startHost(attempt + 1); return; }
+      setStatus('Raum konnte nicht erstellt werden. Prüfe deine Internetverbindung und versuche es nochmal.', true);
+    });
+  }
+
+  async function joinRoom() {
+    const code = $('codeInput').value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (code.length !== 4) { setStatus('Der Raumcode hat 4 Zeichen.', true); return; }
+    setStatus('Verbinde mit Raum ' + code + ' …');
+    setBusy(true);
+    try { await loadPeer(); } catch (e) {
+      setBusy(false);
+      setStatus('Die Mehrspieler-Verbindung konnte nicht geladen werden. Bist du online?', true);
+      return;
+    }
+    leaveSession();
+    const peer = new window.Peer(peerOptions());
+    let connected = false;
+    const fail = text => {
+      setBusy(false);
+      try { peer.destroy(); } catch (e) { /* egal */ }
+      if (session.peer === peer) backToMenu(text, true);
+      else setStatus(text, true);
+    };
+    const timer = setTimeout(() => { if (!connected) fail('Raum nicht gefunden. Stimmt der Code und ist der Gastgeber noch im Spiel?'); }, 12000);
+    peer.on('open', () => {
+      const conn = peer.connect(PEER_PREFIX + code, { serialization: 'json', reliable: true });
+      const link = {
+        send: m => { try { if (conn.open) conn.send(m); } catch (e) { /* egal */ } },
+        close: () => { try { conn.close(); } catch (e) { /* egal */ } try { peer.destroy(); } catch (e) { /* egal */ } },
+      };
+      conn.on('open', () => {
+        connected = true;
+        clearTimeout(timer);
+        setBusy(false);
+        startRemote('guest', link, { code, peer });
+      });
+      conn.on('data', onRemoteMessage);
+      conn.on('close', () => { if (session.link === link) backToMenu('Die Verbindung zum Raum wurde getrennt.', true); });
+    });
+    peer.on('error', err => {
+      // Nach erfolgreichem Beitritt sind Störungen beim Vermittlungsserver egal
+      if (connected && err && err.type !== 'peer-unavailable') return;
+      clearTimeout(timer);
+      if (err && err.type === 'peer-unavailable') fail('Raum nicht gefunden. Stimmt der Code und ist der Gastgeber noch im Spiel?');
+      else fail('Verbindung fehlgeschlagen. Versucht es im selben WLAN oder erstellt einen neuen Raum.');
+    });
+  }
+
+  // ---------- Online-Server (WebSocket) ----------
+  function serverUrl() {
+    const s = window.FARBREVIER_SERVER;
+    if (!s) return null;
+    if (s === 'same-origin') return (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws';
+    if (/^wss?:\/\//.test(s)) return s;
+    if (/^https?:\/\//.test(s)) return s.replace(/^http/, 'ws').replace(/\/?$/, '/ws');
+    return null;
+  }
+
+  function joinOnline() {
+    const url = serverUrl();
+    if (!url) return;
+    setStatus('Verbinde mit dem Server … (das erste Mal kann bis zu einer Minute dauern)');
+    setBusy(true);
+    leaveSession();
+    let ws, opened = false;
+    try { ws = new WebSocket(url); } catch (e) {
+      setBusy(false);
+      setStatus('Server nicht erreichbar.', true);
+      return;
+    }
+    const link = {
+      send: m => { if (ws.readyState === 1) ws.send(JSON.stringify(m)); },
+      close: () => { try { ws.close(); } catch (e) { /* egal */ } },
+    };
+    ws.onopen = () => { opened = true; setBusy(false); startRemote('online', link, {}); };
+    ws.onmessage = e => {
+      let m;
+      try { m = JSON.parse(e.data); } catch (err) { return; }
+      onRemoteMessage(m);
+    };
+    ws.onclose = () => {
+      if (!opened) { setBusy(false); setStatus('Server nicht erreichbar. Versuch es gleich nochmal.', true); return; }
+      if (session.link === link) backToMenu('Die Verbindung zum Server wurde getrennt.', true);
+    };
+  }
+
+  function startRemote(kind, link, extra) {
+    const prof = profile();
+    resetRemote();
+    session = Object.assign({ kind, link, lastMsgAt: performance.now() }, extra);
+    world = remote;
+    myId = 0;
+    lastSentTarget = null;
+    ui = 'connecting';
+    setStatus('Verbunden – lade Spielwelt …');
+    link.send({ t: 'join', name: prof.name, color: prof.color });
+  }
+
   // ---------- Rendering ----------
-  const canvas = document.getElementById('game');
+  const canvas = $('game');
   const ctx = canvas.getContext('2d');
-  const mini = document.getElementById('minimap');
+  const mini = $('minimap');
   const mctx = mini.getContext('2d');
   const miniOff = document.createElement('canvas');
   miniOff.width = W; miniOff.height = H;
   const moctx = miniOff.getContext('2d');
   const miniImg = moctx.createImageData(W, H);
+  const rbFlag = new Uint8Array(256);
 
-  let dpr = 1, cw = 0, ch = 0, cellPx = 30, viewOx = 0, viewOy = 0;
+  let dpr = 1, cw = 0, ch = 0, cellPx = 30, viewOx = 0, viewOy = 0, snapCam = false;
   function resize() {
     dpr = Math.min(window.devicePixelRatio || 1, 2);
     cw = canvas.width = Math.floor(innerWidth * dpr);
@@ -539,10 +542,25 @@
     ctx.closePath();
   }
 
-  function render() {
+  function sparkle(cx, cy, r) {
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - r);
+    ctx.quadraticCurveTo(cx, cy, cx + r, cy);
+    ctx.quadraticCurveTo(cx, cy, cx, cy + r);
+    ctx.quadraticCurveTo(cx, cy, cx - r, cy);
+    ctx.quadraticCurveTo(cx, cy, cx, cy - r);
+    ctx.fill();
+  }
+
+  function render(rt) {
     const cell = cellPx;
+    const { owner, trailMap, players } = world;
     const ox = Math.round(cw / 2 - cam.x * cell), oy = Math.round(ch / 2 - cam.y * cell);
     viewOx = ox; viewOy = oy;
+
+    rbFlag.fill(0);
+    let anyRb = false;
+    for (const p of players) if (p && isRb(p)) { rbFlag[p.id] = 1; anyRb = true; }
 
     ctx.fillStyle = '#262b38';
     ctx.fillRect(0, 0, cw, ch);
@@ -564,15 +582,24 @@
     for (let y = y0; y <= y1; y++) {
       const row = y * W;
       for (let pass = 0; pass < 2; pass++) {
+        const dy = pass === 0 ? depth : 0;
         let x = x0;
         while (x <= x1) {
           const o = owner[row + x];
-          if (!o) { x++; continue; }
+          if (!o || !players[o]) { x++; continue; }
           let e = x;
           while (e + 1 <= x1 && owner[row + e + 1] === o) e++;
-          const col = players[o].color;
-          ctx.fillStyle = pass === 0 ? col.dark : col.base;
-          ctx.fillRect(ox + x * cell, oy + y * cell + (pass === 0 ? depth : 0), (e - x + 1) * cell, cell);
+          if (rbFlag[o]) {
+            const pal = pass === 0 ? RB_DARK : RB_TOP;
+            for (let xx = x; xx <= e; xx++) {
+              ctx.fillStyle = pal[rbIndex(xx, y, rt)];
+              ctx.fillRect(ox + xx * cell, oy + y * cell + dy, cell + 1, cell);
+            }
+          } else {
+            const col = colorOf(players[o]);
+            ctx.fillStyle = pass === 0 ? col.dark : col.base;
+            ctx.fillRect(ox + x * cell, oy + y * cell + dy, (e - x + 1) * cell, cell);
+          }
           x = e + 1;
         }
       }
@@ -584,13 +611,42 @@
       let x = x0;
       while (x <= x1) {
         const t = trailMap[row + x];
-        if (!t) { x++; continue; }
+        if (!t || !players[t]) { x++; continue; }
         let e = x;
         while (e + 1 <= x1 && trailMap[row + e + 1] === t) e++;
-        ctx.fillStyle = players[t].color.trail;
-        ctx.fillRect(ox + x * cell, oy + y * cell, (e - x + 1) * cell, cell);
+        if (rbFlag[t]) {
+          for (let xx = x; xx <= e; xx++) {
+            ctx.fillStyle = RB_TRAIL[rbIndex(xx, y, rt)];
+            ctx.fillRect(ox + xx * cell, oy + y * cell, cell, cell);
+          }
+        } else {
+          ctx.fillStyle = colorOf(players[t]).trail;
+          ctx.fillRect(ox + x * cell, oy + y * cell, (e - x + 1) * cell, cell);
+        }
         x = e + 1;
       }
+    }
+
+    // Glitzer auf Einhorn-Gebieten
+    if (anyRb) {
+      ctx.fillStyle = '#ffffff';
+      for (let y = y0; y <= y1; y++) {
+        const row = y * W;
+        for (let x = x0; x <= x1; x++) {
+          const o = owner[row + x], t = trailMap[row + x];
+          if (!rbFlag[o] && !rbFlag[t]) continue;
+          const h = cellHash(x, y);
+          if (h % 2 !== 0) continue;
+          const tw = Math.sin(rt * (2.5 + (h % 7) * 0.4) + (h % 628) / 100);
+          if (tw < 0.3) continue;
+          const a = (tw - 0.3) / 0.7;
+          ctx.globalAlpha = a;
+          const sx = ox + (x + 0.2 + ((h >> 4) % 60) / 100) * cell;
+          const sy = oy + (y + 0.2 + ((h >> 10) % 60) / 100) * cell;
+          sparkle(sx, sy, cell * (0.15 + 0.35 * a));
+        }
+      }
+      ctx.globalAlpha = 1;
     }
 
     // Spielfeldrand
@@ -600,15 +656,25 @@
 
     // Spieler
     const size = cell * 1.05;
-    for (let k = 1; k < players.length; k++) {
-      const p = players[k];
-      if (!p.alive) continue;
+    for (const p of players) {
+      if (!p || !p.alive) continue;
       const sx = ox + p.x * cell, sy = oy + p.y * cell;
       if (sx < -cell * 4 || sy < -cell * 4 || sx > cw + cell * 4 || sy > ch + cell * 4) continue;
       const hx = sx - size / 2, hy = sy - size / 2, r = size * 0.22;
-      ctx.fillStyle = p.color.dark;
-      rrect(hx, hy + depth, size, size, r); ctx.fill();
-      ctx.fillStyle = p.color.base;
+      const rb = rbFlag[p.id] === 1;
+      const col = colorOf(p);
+      if (rb) {
+        const k = rbIndex(Math.floor(p.x), Math.floor(p.y), rt);
+        ctx.fillStyle = RB_DARK[k];
+        rrect(hx, hy + depth, size, size, r); ctx.fill();
+        const g = ctx.createLinearGradient(hx, hy, hx + size, hy + size);
+        for (let s = 0; s <= 4; s++) g.addColorStop(s / 4, RB_TOP[(k + s * 8) % HUES]);
+        ctx.fillStyle = g;
+      } else {
+        ctx.fillStyle = col.dark;
+        rrect(hx, hy + depth, size, size, r); ctx.fill();
+        ctx.fillStyle = col.base;
+      }
       rrect(hx, hy, size, size, r); ctx.fill();
       ctx.strokeStyle = 'rgba(255,255,255,.85)';
       ctx.lineWidth = Math.max(1.5, cell * 0.07);
@@ -626,21 +692,50 @@
         ctx.beginPath(); ctx.arc(cx2 + c * size * 0.06, cy2 + s * size * 0.06, size * 0.075, 0, Math.PI * 2); ctx.fill();
       }
 
+      // Einhorn-Horn
+      let nameY = hy - cell * 0.15;
+      if (rb) {
+        const bx = sx, by = hy + size * 0.08, tipX = bx + size * 0.05, tipY = by - size * 0.62;
+        ctx.beginPath();
+        ctx.moveTo(bx - size * 0.16, by);
+        ctx.lineTo(bx + size * 0.16, by);
+        ctx.lineTo(tipX, tipY);
+        ctx.closePath();
+        ctx.fillStyle = '#fcd34d';
+        ctx.fill();
+        ctx.strokeStyle = '#b45309';
+        ctx.lineWidth = Math.max(1, cell * 0.04);
+        ctx.stroke();
+        ctx.beginPath();
+        for (const f of [0.3, 0.6]) {
+          const lx = bx - size * 0.16 + (tipX - (bx - size * 0.16)) * f, ly = by + (tipY - by) * f;
+          const rx = bx + size * 0.16 + (tipX - (bx + size * 0.16)) * f;
+          ctx.moveTo(lx, ly + size * 0.03);
+          ctx.lineTo(rx, ly - size * 0.03);
+        }
+        ctx.stroke();
+        ctx.fillStyle = '#fff';
+        ctx.globalAlpha = 0.5 + 0.5 * Math.sin(rt * 6);
+        sparkle(tipX, tipY - size * 0.04, size * 0.16);
+        ctx.globalAlpha = 1;
+        nameY = tipY - size * 0.1;
+      }
+
       // Name
       ctx.font = `700 ${Math.round(cell * 0.5)}px system-ui, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
       ctx.lineWidth = Math.max(2, cell * 0.12);
       ctx.strokeStyle = 'rgba(20,24,34,.75)';
-      ctx.strokeText(p.name, sx, hy - cell * 0.15);
+      ctx.strokeText(p.name, sx, nameY);
       ctx.fillStyle = '#fff';
-      ctx.fillText(p.name, sx, hy - cell * 0.15);
+      ctx.fillText(p.name, sx, nameY);
     }
 
     // Partikel
     for (const q of particles) {
       ctx.globalAlpha = Math.max(0, Math.min(1, q.life * 1.5));
-      ctx.fillStyle = q.color.base;
+      ctx.fillStyle = q.color;
       const s2 = q.size * cell;
       ctx.fillRect(ox + q.x * cell - s2 / 2, oy + q.y * cell - s2 / 2, s2, s2);
     }
@@ -661,174 +756,192 @@
     ctx.globalAlpha = 1;
   }
 
-  function renderMinimap() {
+  function renderMinimap(rt) {
+    const { owner, trailMap, players } = world;
     const d = miniImg.data;
     for (let i = 0; i < N; i++) {
       const t = trailMap[i], o = owner[i];
-      let r = 243, g = 245, b = 249;
-      if (t) [r, g, b] = players[t].color.trailRgb;
-      else if (o) [r, g, b] = players[o].color.rgb;
+      let rgb = null;
+      if (t && players[t]) rgb = rbFlag[t] ? RB_TRAIL_RGB[rbIndex(i % W, (i / W) | 0, rt)] : colorOf(players[t]).trailRgb;
+      else if (o && players[o]) rgb = rbFlag[o] ? RB_RGB[rbIndex(i % W, (i / W) | 0, rt)] : colorOf(players[o]).rgb;
       const k = i * 4;
-      d[k] = r; d[k + 1] = g; d[k + 2] = b; d[k + 3] = 255;
+      if (rgb) { d[k] = rgb[0]; d[k + 1] = rgb[1]; d[k + 2] = rgb[2]; } else { d[k] = 243; d[k + 1] = 245; d[k + 2] = 249; }
+      d[k + 3] = 255;
     }
     moctx.putImageData(miniImg, 0, 0);
     const mw = mini.width, mh = mini.height;
     mctx.imageSmoothingEnabled = false;
     mctx.clearRect(0, 0, mw, mh);
     mctx.drawImage(miniOff, 0, 0, mw, mh);
-    // Sichtbereich
     const cell = cellPx;
     mctx.strokeStyle = 'rgba(31,36,48,.5)';
     mctx.lineWidth = 1;
     mctx.strokeRect((-viewOx / cell) * mw / W, (-viewOy / cell) * mh / H, (cw / cell) * mw / W, (ch / cell) * mh / H);
-    if (human && human.alive) {
+    const p = me();
+    if (p && p.alive) {
       mctx.fillStyle = '#1f2430';
-      mctx.beginPath();
-      mctx.arc(human.x * mw / W, human.y * mh / H, 4, 0, Math.PI * 2);
-      mctx.fill();
+      mctx.beginPath(); mctx.arc(p.x * mw / W, p.y * mh / H, 4, 0, Math.PI * 2); mctx.fill();
       mctx.fillStyle = '#fff';
-      mctx.beginPath();
-      mctx.arc(human.x * mw / W, human.y * mh / H, 2, 0, Math.PI * 2);
-      mctx.fill();
+      mctx.beginPath(); mctx.arc(p.x * mw / W, p.y * mh / H, 2, 0, Math.PI * 2); mctx.fill();
     }
   }
 
   // ---------- HUD ----------
-  const lbEl = document.getElementById('leaderboard');
-  const hudEl = document.getElementById('hud');
-  const pctEl = document.getElementById('pct');
-  const subEl = document.getElementById('sub');
-
-  function esc(s) {
-    return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  }
-
+  const lbEl = $('leaderboard');
   function updateLeaderboard() {
-    const alive = players.filter(p => p && p.alive).sort((a, b) => b.count - a.count);
+    const alive = world.players.filter(p => p && p.alive).sort((a, b) => b.count - a.count);
+    const showHumans = session.kind !== 'solo';
     let html = '<div class="title">Rangliste</div>';
-    const rowHtml = (p, rank) =>
-      `<div class="row${p === human ? ' me' : ''}"><span>${rank}.</span>` +
-      `<span class="dot" style="background:${p.color.base}"></span>` +
-      `<span class="name">${esc(p.name)}</span><span>${fmtPct(pctOf(p))}</span></div>`;
+    const rowHtml = (p, rank) => {
+      const dot = isRb(p) ? RAINBOW_CSS : colorOf(p).base;
+      const tag = showHumans && !p.isBot && p.id !== myId ? '<span class="human" title="Mensch">●</span>' : '';
+      return `<div class="row${p.id === myId ? ' me' : ''}"><span>${rank}.</span>` +
+        `<span class="dot" style="background:${dot}"></span>` +
+        `<span class="name">${tag}${esc(p.name)}</span><span>${fmtPct((p.count / N) * 100)}</span></div>`;
+    };
     alive.slice(0, 6).forEach((p, k) => { html += rowHtml(p, k + 1); });
-    const myRank = alive.indexOf(human);
-    if (myRank >= 6) html += rowHtml(human, myRank + 1);
+    const my = me();
+    const myRank = my ? alive.indexOf(my) : -1;
+    if (myRank >= 6) html += rowHtml(my, myRank + 1);
     lbEl.innerHTML = html;
   }
 
   function updateHud() {
-    if (state === 'play' && human.alive) {
-      pctEl.textContent = fmtPct(pctOf(human));
-      subEl.textContent = `Kills: ${human.kills} · ${fmtTime(time - human.spawnTime)}`;
+    const p = me();
+    if (ui === 'play' && p && p.alive) {
+      const pct = (p.count / N) * 100;
+      myBest = Math.max(myBest, pct);
+      $('pct').textContent = fmtPct(pct);
+      $('sub').textContent = `Kills: ${p.kills} · ${fmtTime(worldTime() - p.spawnTime)}`;
     }
   }
 
-  // ---------- Spielablauf ----------
-  const menuEl = document.getElementById('menu');
-  const overEl = document.getElementById('over');
-  const pauseEl = document.getElementById('pause');
-  const nameInput = document.getElementById('nameInput');
-  const swatchesEl = document.getElementById('swatches');
-  const recordEl = document.getElementById('record');
-  let lastRun = null;
-
-  function bestRecord() {
-    return parseFloat(store.get('farbrevier.best') || '0') || 0;
+  const roomEl = $('roomInfo');
+  function updateRoomInfo() {
+    if (session.kind === 'solo' || ui === 'menu') { roomEl.classList.add('hidden'); return; }
+    let humans = 0;
+    for (const p of world.players) if (p && !p.isBot) humans++;
+    let html;
+    if (session.kind === 'host') {
+      html = `<div><b>Raum ${session.code}</b> · ${humans} Spieler</div>` +
+        '<button id="copyLinkBtn" type="button">Einladungslink kopieren</button>';
+    } else if (session.kind === 'guest') {
+      html = `<div><b>Raum ${esc(session.code)}</b> · ${humans} Spieler</div>`;
+    } else {
+      html = `<div><b>Online</b> · ${humans} Spieler</div>`;
+    }
+    if (roomEl.dataset.html !== html) {
+      roomEl.innerHTML = html;
+      roomEl.dataset.html = html;
+      const b = $('copyLinkBtn');
+      if (b) b.addEventListener('click', copyInvite);
+    }
+    roomEl.classList.remove('hidden');
   }
 
+  function copyInvite() {
+    const link = location.origin + location.pathname + '#raum-' + session.code;
+    const b = $('copyLinkBtn');
+    const show = text => {
+      if (!b) return;
+      b.textContent = text;
+      setTimeout(() => { roomEl.dataset.html = ''; updateRoomInfo(); }, 2500);
+    };
+    try {
+      navigator.clipboard.writeText(link).then(() => show('Kopiert!'), () => show(link));
+    } catch (e) { show(link); }
+  }
+
+  // ---------- Menüs ----------
+  const nameInput = $('nameInput');
+  const statusEl = $('mpStatus');
+
+  function setStatus(text, isError) {
+    statusEl.textContent = text || '';
+    statusEl.classList.toggle('error', !!isError);
+  }
+  function setBusy(on) {
+    for (const id of ['soloBtn', 'hostBtn', 'joinBtn', 'onlineBtn']) { const b = $(id); if (b) b.disabled = on; }
+  }
+
+  function bestRecord() { return parseFloat(store.get('farbrevier.best') || '0') || 0; }
   function showRecord() {
     const b = bestRecord();
-    recordEl.textContent = b > 0 ? `Dein Rekord: ${fmtPct(b)}` : '';
+    $('record').textContent = b > 0 ? `Dein Rekord: ${fmtPct(b)}` : '';
   }
 
   function buildSwatches() {
-    swatchesEl.innerHTML = '';
+    const el = $('swatches');
+    el.innerHTML = '';
     COLORS.forEach(c => {
       const b = document.createElement('button');
+      b.type = 'button';
       b.style.background = c.base;
       b.title = 'Farbe wählen';
       if (c.i === humanColor) b.className = 'sel';
       b.addEventListener('click', () => { humanColor = c.i; store.set('farbrevier.color', String(c.i)); buildSwatches(); });
-      swatchesEl.appendChild(b);
+      el.appendChild(b);
     });
   }
 
-  function startGame() {
-    const name = (nameInput.value || '').trim().slice(0, 14) || 'Du';
-    store.set('farbrevier.name', name);
-    human.name = name;
-    human.color = COLORS[humanColor];
-    // Bots mit derselben Farbe bekommen eine andere
-    for (const p of players) {
-      if (p && p.isBot && p.color.i === humanColor) giveBotIdentity(p);
-    }
-    spawn(human);
-    cam.x = human.x; cam.y = human.y;
-    state = 'play';
-    paused = false;
-    menuEl.classList.add('hidden');
-    overEl.classList.add('hidden');
-    pauseEl.classList.add('hidden');
-    hudEl.classList.remove('hidden');
-  }
-
-  function onHumanDeath(killer, reason) {
-    state = 'dead';
-    deathCam = { x: human.x, y: human.y };
-    const survived = time - human.spawnTime;
-    const best = bestRecord();
-    const isRecord = best > 0 && human.bestPct > best;
-    if (human.bestPct > best) store.set('farbrevier.best', String(human.bestPct));
-    lastRun = { killer, reason, pct: human.bestPct, kills: human.kills, survived, isRecord, best: Math.max(best, human.bestPct) };
-    setTimeout(showGameOver, 900);
+  function updateNameFx() {
+    nameInput.classList.toggle('einhorn', FE.isRainbowName(nameInput.value));
   }
 
   function showGameOver() {
-    if (state !== 'dead' || !lastRun) return;
+    if (ui !== 'dead' || !lastRun) return;
     const r = lastRun;
     const reasons = {
       self: 'Du bist über deine eigene Spur gefahren.',
-      head: `${r.killer ? r.killer.name : 'Jemand'} hat dich frontal gerammt.`,
-      wiped: `${r.killer ? r.killer.name : 'Jemand'} hat dein ganzes Gebiet eingenommen.`,
-      trail: `${r.killer ? r.killer.name : 'Jemand'} hat deine Spur gekreuzt.`,
+      head: `${r.killer || 'Jemand'} hat dich frontal gerammt.`,
+      wiped: `${r.killer || 'Jemand'} hat dein ganzes Gebiet eingenommen.`,
+      trail: `${r.killer || 'Jemand'} hat deine Spur gekreuzt.`,
     };
-    document.getElementById('overTitle').textContent = r.isRecord ? 'Neuer Rekord!' : 'Erwischt!';
-    document.getElementById('overReason').textContent = reasons[r.reason] || '';
-    document.getElementById('resPct').textContent = fmtPct(r.pct);
-    document.getElementById('resKills').textContent = r.kills;
-    document.getElementById('resTime').textContent = fmtTime(r.survived);
-    document.getElementById('overRecord').textContent = `Rekord: ${fmtPct(r.best)}`;
-    hudEl.classList.add('hidden');
-    overEl.classList.remove('hidden');
+    $('overTitle').textContent = r.isRecord ? 'Neuer Rekord!' : 'Erwischt!';
+    $('overReason').textContent = reasons[r.reason] || '';
+    $('resPct').textContent = fmtPct(r.pct);
+    $('resKills').textContent = r.kills;
+    $('resTime').textContent = fmtTime(r.survived);
+    $('overRecord').textContent = `Rekord: ${fmtPct(r.best)}`;
+    $('overNote').textContent = session.kind === 'host'
+      ? `Dein Raum ${session.code} läuft weiter. „Zum Menü“ beendet ihn für alle.` : '';
+    $('hud').classList.add('hidden');
+    $('over').classList.remove('hidden');
   }
 
   function togglePause() {
-    if (state !== 'play') return;
+    if (ui !== 'play' || session.kind !== 'solo') return;
     paused = !paused;
-    pauseEl.classList.toggle('hidden', !paused);
+    $('pause').classList.toggle('hidden', !paused);
   }
 
-  document.getElementById('playBtn').addEventListener('click', startGame);
-  document.getElementById('againBtn').addEventListener('click', startGame);
-  document.getElementById('menuBtn').addEventListener('click', () => {
-    state = 'menu';
-    overEl.classList.add('hidden');
-    menuEl.classList.remove('hidden');
-    showRecord();
-  });
-  nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') startGame(); e.stopPropagation(); });
+  $('soloBtn').addEventListener('click', () => { setStatus(''); startSolo(); });
+  $('hostBtn').addEventListener('click', () => startHost());
+  $('joinBtn').addEventListener('click', joinRoom);
+  $('onlineBtn').addEventListener('click', joinOnline);
+  $('againBtn').addEventListener('click', respawn);
+  $('menuBtn').addEventListener('click', () => backToMenu(''));
+  nameInput.addEventListener('input', updateNameFx);
+  nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') startSolo(); e.stopPropagation(); });
+  $('codeInput').addEventListener('keydown', e => { if (e.key === 'Enter') joinRoom(); e.stopPropagation(); });
+  $('codeInput').addEventListener('input', e => { e.target.value = e.target.value.toUpperCase(); });
 
   // ---------- Eingabe ----------
+  function setMyTarget(a) {
+    myTarget = a;
+    if (!isRemote() && localHuman && localHuman.alive) localEngine.setTarget(localHuman, a);
+  }
   function aimAt(clientX, clientY) {
-    if (state !== 'play' || paused || !human.alive) return;
-    const hx = (viewOx + human.x * cellPx) / dpr, hy = (viewOy + human.y * cellPx) / dpr;
+    const p = me();
+    if (ui !== 'play' || paused || !p || !p.alive) return;
+    const hx = (viewOx + p.x * cellPx) / dpr, hy = (viewOy + p.y * cellPx) / dpr;
     const dx = clientX - hx, dy = clientY - hy;
     if (dx * dx + dy * dy < 16) return;
-    human.target = Math.atan2(dy, dx);
+    setMyTarget(Math.atan2(dy, dx));
   }
   window.addEventListener('mousemove', e => aimAt(e.clientX, e.clientY));
   const onTouch = e => {
-    if (state !== 'play') return;
+    if (ui !== 'play') return;
     e.preventDefault();
     const t = e.touches[0];
     if (t) aimAt(t.clientX, t.clientY);
@@ -846,63 +959,104 @@
     if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') { togglePause(); return; }
     if (e.key in KEY_DIRS) {
       e.preventDefault();
-      if (state === 'play' && !paused && human.alive) human.target = KEY_DIRS[e.key];
+      const p = me();
+      if (ui === 'play' && !paused && p && p.alive) setMyTarget(KEY_DIRS[e.key]);
     }
-    if (e.key === 'Enter' && state === 'dead' && !overEl.classList.contains('hidden')) startGame();
+    if (e.key === 'Enter' && ui === 'dead' && !$('over').classList.contains('hidden')) respawn();
   });
-  window.addEventListener('blur', () => { if (state === 'play' && !paused) togglePause(); });
+  window.addEventListener('blur', () => { if (ui === 'play' && session.kind === 'solo' && !paused) togglePause(); });
 
   // ---------- Initialisierung ----------
-  human = newPlayer(HUMAN_ID, false);
-  players.push(human);
-  for (let k = 0; k < BOT_COUNT; k++) {
-    const p = newPlayer(players.length, true);
-    players.push(p);
-  }
-  for (const p of players) {
-    if (p && p.isBot) { giveBotIdentity(p); spawn(p); }
-  }
-  // Welt etwas "vorspulen", damit schon Gebiete existieren
-  for (let k = 0; k < 60 * 20; k++) update();
+  localEngine.prewarm(20);
+  localEngine.onEvent = handleEvent;
 
   const savedColor = parseInt(store.get('farbrevier.color'), 10);
   if (savedColor >= 0 && savedColor < COLORS.length) humanColor = savedColor;
   nameInput.value = store.get('farbrevier.name') || '';
+  updateNameFx();
   buildSwatches();
   showRecord();
+
+  if (NO_MP) {
+    $('mpBox').classList.add('hidden');
+    $('mpNote').classList.remove('hidden');
+  } else {
+    if (!serverUrl()) $('onlineBtn').classList.add('hidden');
+    const m = /^#raum-([A-Za-z0-9]{4})$/.exec(location.hash);
+    if (m) {
+      $('codeInput').value = m[1].toUpperCase();
+      setStatus(`Einladung für Raum ${m[1].toUpperCase()}: Namen eingeben und auf „Beitreten“ tippen.`);
+    }
+  }
 
   let last = performance.now(), acc = 0, frameNo = 0, lbTimer = 0;
   function frame(now) {
     let dt = (now - last) / 1000;
     last = now;
     if (dt > 0.25) dt = 0.25;
+    if (dt < 0) dt = 0;
+
+    if (!isRemote()) {
+      if (!paused) {
+        acc += dt;
+        while (acc >= FE.STEP) {
+          localEngine.step();
+          if (session.kind === 'host') session.hub.afterStep();
+          acc -= FE.STEP;
+        }
+      }
+    } else {
+      acc = 0;
+      updateRemoteDisplay(dt);
+    }
+
     if (!paused) {
-      acc += dt;
-      while (acc >= STEP) { update(); acc -= STEP; }
+      for (let k = particles.length - 1; k >= 0; k--) {
+        const q = particles[k];
+        q.x += q.vx * dt; q.y += q.vy * dt;
+        q.vx *= Math.pow(0.94, dt * 60); q.vy *= Math.pow(0.94, dt * 60);
+        q.life -= dt;
+        if (q.life <= 0) particles.splice(k, 1);
+      }
+      for (let k = floaters.length - 1; k >= 0; k--) {
+        const f = floaters[k];
+        f.y -= dt * 1.2;
+        f.life -= dt;
+        if (f.life <= 0) floaters.splice(k, 1);
+      }
     }
 
     // Kamera
     let tx = cam.x, ty = cam.y;
-    if (state === 'play' && human.alive) { tx = human.x; ty = human.y; }
-    else if (state === 'dead' && deathCam) { tx = deathCam.x; ty = deathCam.y; }
-    else {
+    const p = me();
+    if (ui === 'play' && p && p.alive) { tx = p.x; ty = p.y; }
+    else if (ui === 'dead' && deathCam) { tx = deathCam.x; ty = deathCam.y; }
+    else if (ui === 'menu') {
       let leader = null;
-      for (const p of players) if (p && p.alive && p.isBot && (!leader || p.count > leader.count)) leader = p;
+      for (const q of world.players) if (q && q.alive && q.isBot && (!leader || q.count > leader.count)) leader = q;
       if (leader) { tx = leader.x; ty = leader.y; }
     }
-    const f = Math.min(1, dt * (state === 'play' ? 12 : 2));
+    if (snapCam && ui === 'play' && p && p.alive) { cam.x = tx; cam.y = ty; snapCam = false; }
+    const f = Math.min(1, dt * (ui === 'play' ? 12 : 2));
     cam.x += (tx - cam.x) * f;
     cam.y += (ty - cam.y) * f;
 
-    render();
-    if (frameNo++ % 10 === 0) renderMinimap();
+    const rt = now / 1000;
+    render(rt);
+    if (frameNo++ % 10 === 0) renderMinimap(rt);
     lbTimer -= dt;
-    if (lbTimer <= 0) { updateLeaderboard(); lbTimer = 0.4; }
+    if (lbTimer <= 0) { updateLeaderboard(); updateRoomInfo(); lbTimer = 0.4; }
     updateHud();
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
 
   // kleiner Debug-Zugang für Tests
-  window.farbrevier = { players, owner, trailMap, W, H, update, deathStats, get state() { return state; } };
+  window.farbrevier = {
+    engine: localEngine,
+    get world() { return world; },
+    get ui() { return ui; },
+    get session() { return session; },
+    get myId() { return myId; },
+  };
 })();

@@ -1,0 +1,9 @@
+# Render-Blueprint: https://render.com → New → Blueprint → dieses Repo auswählen
+services:
+  - type: web
+    name: farbrevier
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
